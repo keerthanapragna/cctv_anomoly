@@ -1,4 +1,6 @@
-const API_BASE_URL = 'http://localhost:5000/api/v1'
+const RAW_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
+export const BASE_SERVER_URL = RAW_BASE_URL.replace(/\/+$/, '')
+const API_BASE_URL = `${BASE_SERVER_URL}/api/v1`
 
 export async function apiFetch(endpoint, options = {}) {
   const token = localStorage.getItem('hazard_token')
@@ -8,11 +10,18 @@ export async function apiFetch(endpoint, options = {}) {
     ...(options.headers || {}),
   }
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-    ...options,
-    headers,
-    credentials: 'include',
-  })
+  let response
+  try {
+    response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      ...options,
+      headers,
+      credentials: 'include',
+    })
+  } catch (netErr) {
+    const error = new Error(`Cannot connect to Hazard Response API at ${BASE_SERVER_URL}. Please ensure the backend server is running. (${netErr.message})`)
+    error.isNetworkError = true
+    throw error
+  }
 
   const data = await response.json().catch(() => null)
 
@@ -38,6 +47,14 @@ export const authAPI = {
       method: 'POST',
     }),
   getMe: () => apiFetch('/auth/me'),
+  health: async () => {
+    try {
+      const res = await fetch(`${BASE_SERVER_URL}/api/health`)
+      return await res.json()
+    } catch (err) {
+      return { success: false, message: err.message }
+    }
+  },
 }
 
 export const incidentAPI = {
@@ -74,5 +91,45 @@ export const incidentAPI = {
     apiFetch(`/incidents/${id}/escalate`, {
       method: 'POST',
       body: JSON.stringify({ escalationTier, reason }),
+    }),
+}
+
+export const userAPI = {
+  list: (params = {}) => {
+    const queryString = new URLSearchParams(params).toString()
+    return apiFetch(`/users${queryString ? `?${queryString}` : ''}`)
+  },
+  getById: (id) => apiFetch(`/users/${id}`),
+  updateStatus: (id, isActive) =>
+    apiFetch(`/users/${id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ isActive }),
+    }),
+}
+
+export const sensorAPI = {
+  list: (params = {}) => {
+    const queryString = new URLSearchParams(params).toString()
+    return apiFetch(`/sensors${queryString ? `?${queryString}` : ''}`)
+  },
+  getById: (id) => apiFetch(`/sensors/${id}`),
+  create: (sensorData) =>
+    apiFetch('/sensors', {
+      method: 'POST',
+      body: JSON.stringify(sensorData),
+    }),
+  updateStatus: (id, statusData) =>
+    apiFetch(`/sensors/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(statusData),
+    }),
+}
+
+export const directiveAPI = {
+  list: () => apiFetch('/directives'),
+  create: (directiveData) =>
+    apiFetch('/directives', {
+      method: 'POST',
+      body: JSON.stringify(directiveData),
     }),
 }

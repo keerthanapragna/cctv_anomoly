@@ -7,34 +7,45 @@ export default function CreateIncidentModal({ isOpen, onClose, onCreate, current
     type: 'Fire / Smoke',
     location: '',
     severity: 'High',
-    department: currentUser.department || 'General Campus',
+    department: currentUser?.department || 'General Campus',
   })
+  const [submitting, setSubmitting] = useState(false)
+  const [modalError, setModalError] = useState(null)
 
   if (!isOpen) return null
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault()
     if (!form.title.trim() || !form.location.trim()) return
 
-    onCreate({
-      title: form.title.trim(),
-      type: form.type,
-      location: form.location.trim(),
-      severity: form.severity,
-      department: form.department,
-      assignee: currentUser.role === 'SECURITY_OFFICER' ? 'Campus Security' : 'Pending Triage',
-      assignedOfficer: currentUser.role === 'SECURITY_OFFICER' ? currentUser.name : null,
-      assignedStaff: currentUser.role === 'FACULTY_STAFF' ? currentUser.name : null,
-    })
+    setSubmitting(true)
+    setModalError(null)
 
-    setForm({
-      title: '',
-      type: 'Fire / Smoke',
-      location: '',
-      severity: 'High',
-      department: currentUser.department || 'General Campus',
-    })
-    onClose()
+    try {
+      await onCreate({
+        title: form.title.trim(),
+        type: form.type,
+        location: form.location.trim(),
+        severity: form.severity,
+        department: form.department,
+        assignee: currentUser?.role === 'SECURITY_OFFICER' ? 'Campus Security' : 'Pending Triage',
+        assignedOfficer: currentUser?.role === 'SECURITY_OFFICER' ? currentUser?.name : null,
+        assignedStaff: currentUser?.role === 'FACULTY_STAFF' ? currentUser?.name : null,
+      })
+
+      setForm({
+        title: '',
+        type: 'Fire / Smoke',
+        location: '',
+        severity: 'High',
+        department: currentUser?.department || 'General Campus',
+      })
+      onClose()
+    } catch (err) {
+      setModalError(err.message || 'Failed to create incident.')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -72,6 +83,12 @@ export default function CreateIncidentModal({ isOpen, onClose, onCreate, current
             <X size={19} />
           </button>
         </div>
+
+        {modalError && (
+          <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
+            {modalError}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           <div>
@@ -164,10 +181,11 @@ export default function CreateIncidentModal({ isOpen, onClose, onCreate, current
             </button>
             <button
               type="submit"
-              className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#a94064] px-5 py-2.5 text-xs font-semibold text-white hover:bg-[#8f3454]"
+              disabled={submitting}
+              className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#a94064] px-5 py-2.5 text-xs font-semibold text-white hover:bg-[#8f3454] disabled:opacity-50"
             >
               <Plus size={15} />
-              Register Incident
+              {submitting ? 'Registering...' : 'Register Incident'}
             </button>
           </div>
         </form>

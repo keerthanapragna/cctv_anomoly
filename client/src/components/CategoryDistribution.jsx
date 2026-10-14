@@ -41,30 +41,36 @@ export default function CategoryDistribution({ incidents, subtitle = 'Distributi
         </span>
       </div>
 
-      <div className="space-y-4 pt-2">
-        {categories.map((category) => {
-          const percentage = incidents.length
-            ? Math.round((category.count / incidents.length) * 100)
-            : 0
+      {incidents.length === 0 ? (
+        <div className="py-8 text-center text-xs text-slate-400">
+          No incident records available yet.
+        </div>
+      ) : (
+        <div className="space-y-4 pt-2">
+          {categories.map((category) => {
+            const percentage = incidents.length
+              ? Math.round((category.count / incidents.length) * 100)
+              : 0
 
-          return (
-            <div key={category.label} className="mt-3">
-              <div className="mb-1.5 flex items-center justify-between text-xs">
-                <span className="font-medium text-slate-600">{category.label}</span>
-                <span className="font-semibold text-slate-800">
-                  {category.count} ({percentage}%)
-                </span>
+            return (
+              <div key={category.label} className="mt-3">
+                <div className="mb-1.5 flex items-center justify-between text-xs">
+                  <span className="font-medium text-slate-600">{category.label}</span>
+                  <span className="font-semibold text-slate-800">
+                    {category.count} ({percentage}%)
+                  </span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                  <div
+                    className={`h-full rounded-full transition-all duration-300 ${category.color}`}
+                    style={{ width: `${percentage}%` }}
+                  />
+                </div>
               </div>
-              <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-                <div
-                  className={`h-full rounded-full transition-all duration-300 ${category.color}`}
-                  style={{ width: `${percentage}%` }}
-                />
-              </div>
-            </div>
-          )
-        })}
-      </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

@@ -9,6 +9,7 @@ import {
   UserCheck,
 } from 'lucide-react'
 import { DEMO_ACCOUNTS } from '../data/mockData'
+import { authAPI } from '../services/api'
 
 export default function LoginScreen({ onLogin }) {
   const [email, setEmail] = useState('')
@@ -23,49 +24,17 @@ export default function LoginScreen({ onLogin }) {
     setError(null)
 
     try {
-      // Attempt backend authentication
-      const response = await fetch('http://localhost:5000/api/v1/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ email: email.trim(), password }),
-      })
+      const data = await authAPI.login(email.trim(), password)
 
-      const data = await response.json()
-
-      if (response.ok && data.success) {
+      if (data?.success && data?.data) {
         onLogin(data.data.user, data.data.accessToken)
         return
       }
 
-      // If backend explicitly rejected invalid credentials
-      if (!response.ok) {
-        setError(data.message || 'Invalid credentials. Please verify your email and password.')
-        setLoading(false)
-        return
-      }
-    } catch {
-      // Fallback for offline / demo mode when backend server is not active
-      const matchedDemo = DEMO_ACCOUNTS.find(
-        (a) => a.email.toLowerCase() === email.trim().toLowerCase(),
-      )
-
-      if (matchedDemo && password.length >= 6) {
-        onLogin(
-          {
-            name: matchedDemo.name,
-            email: matchedDemo.email,
-            role: matchedDemo.role,
-            department: matchedDemo.department,
-          },
-          'demo-offline-token',
-        )
-        return
-      }
-
-      setError(
-        'Backend connection offline. Please select one of the Campus Demo Accounts below to test role-based access.',
-      )
+      setError(data?.message || 'Authentication failed. Please verify credentials.')
+    } catch (err) {
+      const msg = err.data?.message || err.message || 'Login failed. Please verify credentials.'
+      setError(msg)
     } finally {
       setLoading(false)
     }

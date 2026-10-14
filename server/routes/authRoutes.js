@@ -23,7 +23,7 @@ const router = Router()
 // Rate limiter for login requests to protect against brute-force attacks
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 15, // 15 attempts per IP per window
+  max: process.env.NODE_ENV === 'development' ? 100 : 15, // Higher headroom in development
   standardHeaders: true,
   legacyHeaders: false,
   skip: () => process.env.NODE_ENV === 'test',

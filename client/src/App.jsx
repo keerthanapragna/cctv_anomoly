@@ -19,9 +19,9 @@ import {
   RefreshCw,
 } from 'lucide-react'
 
-import { DEMO_ACCOUNTS, INITIAL_INCIDENTS, SENSOR_DEVICES, CAMPUS_STAFF_MEMBERS } from './data/mockData'
+import { DEMO_ACCOUNTS } from './data/mockData'
 import { ROLE_CONFIGS } from './utils/roleConfig'
-import { incidentAPI } from './services/api'
+import { authAPI, incidentAPI, userAPI, sensorAPI, directiveAPI } from './services/api'
 import MetricCard from './components/MetricCard'
 import IncidentTable from './components/IncidentTable'
 import CategoryDistribution from './components/CategoryDistribution'
@@ -44,6 +44,9 @@ function normalizeIncident(inc) {
     assignee: inc.assigneeLabel || inc.assignee || 'Unassigned',
     assignedOfficer: inc.assignedOfficer || null,
     assignedStaff: inc.assignedStaff || null,
+    detectedAt: inc.detectedAt || null,
+    acknowledgedAt: inc.acknowledgedAt || null,
+    resolvedAt: inc.resolvedAt || null,
     time: inc.detectedAt
       ? new Date(inc.detectedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       : inc.time || 'Recent',
@@ -59,24 +62,21 @@ function normalizeIncident(inc) {
 export default function App() {
   const [currentUser, setCurrentUser] = useState(() => {
     try {
+      const token = localStorage.getItem('hazard_token')
       const saved = localStorage.getItem('hazard_user')
-      return saved ? JSON.parse(saved) : DEMO_ACCOUNTS[0]
+      if (token && saved && token !== 'demo-offline-token') {
+        return JSON.parse(saved)
+      }
+      return null
     } catch {
-      return DEMO_ACCOUNTS[0]
+      return null
     }
   })
 
-  const [allIncidents, setAllIncidents] = useState(INITIAL_INCIDENTS)
-  const [directives, setDirectives] = useState([
-    {
-      id: 1,
-      incidentId: 'INC-2026-0137',
-      directiveType: 'Emergency Chiller Protocol',
-      instructions: 'Primary Datacenter HVAC chiller failed. Authorized facilities to engage secondary chiller.',
-      issuedAt: '09:30 AM',
-      issuer: 'Vice Chancellor Richardson',
-    },
-  ])
+  const [allIncidents, setAllIncidents] = useState([])
+  const [directives, setDirectives] = useState([])
+  const [sensors, setSensors] = useState([])
+  const [users, setUsers] = useState([])
 
   const [activePage, setActivePage] = useState('Overview')
   const [userMenuOpen, setUserMenuOpen] = useState(false)
@@ -84,22 +84,63 @@ export default function App() {
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [directiveModalOpen, setDirectiveModalOpen] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [dataSource, setDataSource] = useState('Demo Fallback (Offline Mode)')
+  const [apiError, setApiError] = useState(null)
+  const [dataSource, setDataSource] = useState('Connecting...')
 
-  const loadIncidents = async () => {
+  const loadDashboardData = async () => {
     setLoading(true)
+    setApiError(null)
     try {
-      const res = await incidentAPI.list()
-      if (res?.data?.incidents && res.data.incidents.length > 0) {
-        setAllIncidents(res.data.incidents.map(normalizeIncident))
-        setDataSource('API (Live Database)')
+      // 1. Fetch incidents from MongoDB
+      const incRes = await incidentAPI.list()
+      if (incRes?.data?.incidents) {
+        setAllIncidents(incRes.data.incidents.map(normalizeIncident))
       } else {
-        setAllIncidents(INITIAL_INCIDENTS)
-        setDataSource('Demo Baseline (Database Initialized)')
+        setAllIncidents([])
       }
-    } catch {
-      setAllIncidents(INITIAL_INCIDENTS)
-      setDataSource('Demo Fallback (Offline Mode)')
+
+      // 2. Fetch sensor devices from MongoDB
+      try {
+        const sensorRes = await sensorAPI.list()
+        if (sensorRes?.data?.sensors) {
+          setSensors(sensorRes.data.sensors)
+        } else {
+          setSensors([])
+        }
+      } catch (sErr) {
+        console.warn('Sensors fetch info:', sErr.message)
+      }
+
+      // 3. Fetch directives from MongoDB
+      try {
+        const dirRes = await directiveAPI.list()
+        if (dirRes?.data?.directives) {
+          setDirectives(dirRes.data.directives)
+        } else {
+          setDirectives([])
+        }
+      } catch (dErr) {
+        console.warn('Directives fetch info:', dErr.message)
+      }
+
+      // 4. Fetch users from MongoDB if authorized
+      if (['ADMIN', 'SECURITY_OFFICER', 'DEPT_HEAD'].includes(currentUser?.role)) {
+        try {
+          const userRes = await userAPI.list()
+          if (userRes?.data?.users) {
+            setUsers(userRes.data.users)
+          } else {
+            setUsers([])
+          }
+        } catch (uErr) {
+          console.warn('Users fetch info:', uErr.message)
+        }
+      }
+
+      setDataSource('API (Live Database)')
+    } catch (err) {
+      setApiError(err.message || 'Failed to communicate with Hazard Response API.')
+      setDataSource('API Error / Offline')
     } finally {
       setLoading(false)
     }
@@ -107,28 +148,9 @@ export default function App() {
 
   useEffect(() => {
     let ignore = false
-    const initFetch = async () => {
-      try {
-        const res = await incidentAPI.list()
-        if (ignore) return
-        if (res?.data?.incidents && res.data.incidents.length > 0) {
-          setAllIncidents(res.data.incidents.map(normalizeIncident))
-          setDataSource('API (Live Database)')
-        } else {
-          setAllIncidents(INITIAL_INCIDENTS)
-          setDataSource('Demo Baseline (Database Initialized)')
-        }
-      } catch {
-        if (ignore) return
-        setAllIncidents(INITIAL_INCIDENTS)
-        setDataSource('Demo Fallback (Offline Mode)')
-      }
-    }
-
     if (currentUser) {
-      initFetch()
+      loadDashboardData()
     }
-
     return () => {
       ignore = true
     }
@@ -149,79 +171,80 @@ export default function App() {
     localStorage.removeItem('hazard_user')
   }
 
-  function handleSwitchRole(roleKey) {
+  async function handleSwitchRole(roleKey) {
     const targetAccount = DEMO_ACCOUNTS.find((a) => a.role === roleKey)
-    if (targetAccount) {
-      setCurrentUser(targetAccount)
-      localStorage.setItem('hazard_user', JSON.stringify(targetAccount))
+    if (!targetAccount) return
+    setLoading(true)
+    setApiError(null)
+    try {
+      const res = await authAPI.login(targetAccount.email, targetAccount.password)
+      if (res?.data?.user && res?.data?.accessToken) {
+        handleLogin(res.data.user, res.data.accessToken)
+        setUserMenuOpen(false)
+      }
+    } catch (err) {
+      const msg = err.data?.message || err.message || `Unable to switch to ${targetAccount.roleLabel}.`
+      setApiError(`${msg} Note: To enable all demo accounts, run the optional seed script: npm run seed:sample`)
       setUserMenuOpen(false)
-      setActivePage('Overview')
+    } finally {
+      setLoading(false)
     }
   }
 
-  // Interactive Action Handlers (API first with local state update)
+  // Interactive Action Handlers (strictly connected to MongoDB APIs)
   async function handleUpdateStatus(incidentId, newStatus) {
+    setApiError(null)
     try {
-      await incidentAPI.updateStatus(incidentId, newStatus)
-    } catch {
-      // Fallback update
+      let res
+      if (newStatus === 'Resolved') {
+        res = await incidentAPI.resolve(incidentId, 'Resolved via dashboard control')
+      } else {
+        res = await incidentAPI.updateStatus(incidentId, newStatus)
+      }
+      if (res?.data?.incident) {
+        const updated = normalizeIncident(res.data.incident)
+        setAllIncidents((current) =>
+          current.map((inc) => (inc.id === incidentId ? updated : inc)),
+        )
+      }
+    } catch (err) {
+      setApiError(err.data?.message || err.message || 'Failed to update incident status.')
     }
-    setAllIncidents((current) =>
-      current.map((inc) =>
-        inc.id === incidentId
-          ? {
-              ...inc,
-              status: newStatus,
-              deadline: newStatus === 'Resolved' ? 'Resolved' : inc.deadline,
-              isOverdue: newStatus === 'Resolved' ? false : inc.isOverdue,
-            }
-          : inc,
-      ),
-    )
   }
 
   async function handleEscalate(incidentId, tier) {
+    setApiError(null)
     try {
-      await incidentAPI.escalate(incidentId, tier)
-    } catch {
-      // Fallback update
+      const res = await incidentAPI.escalate(incidentId, tier, 'Escalated from dashboard')
+      if (res?.data?.incident) {
+        const updated = normalizeIncident(res.data.incident)
+        setAllIncidents((current) =>
+          current.map((inc) => (inc.id === incidentId ? updated : inc)),
+        )
+      }
+    } catch (err) {
+      setApiError(err.data?.message || err.message || 'Failed to escalate incident.')
     }
-    setAllIncidents((current) =>
-      current.map((inc) =>
-        inc.id === incidentId
-          ? {
-              ...inc,
-              isEscalated: true,
-              escalationTier: tier,
-              notes: `${inc.notes ? inc.notes + ' ' : ''}[Escalated by ${currentUser.name} to ${tier}]`,
-            }
-          : inc,
-      ),
-    )
   }
 
   async function handleAcknowledge(incidentId) {
+    setApiError(null)
     try {
-      await incidentAPI.acknowledge(incidentId)
-    } catch {
-      // Fallback update
+      const res = await incidentAPI.acknowledge(incidentId)
+      if (res?.data?.incident) {
+        const updated = normalizeIncident(res.data.incident)
+        setAllIncidents((current) =>
+          current.map((inc) => (inc.id === incidentId ? updated : inc)),
+        )
+      }
+    } catch (err) {
+      setApiError(err.data?.message || err.message || 'Failed to acknowledge incident.')
     }
-    setAllIncidents((current) =>
-      current.map((inc) =>
-        inc.id === incidentId
-          ? {
-              ...inc,
-              status: 'Assigned',
-              assignee: currentUser.name,
-              notes: `${inc.notes ? inc.notes + ' ' : ''}[Acknowledged by ${currentUser.name} at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}]`,
-            }
-          : inc,
-      ),
-    )
   }
 
   async function handleCreateIncident(newData) {
-    let createdRecord = null
+    setLoading(true)
+    setApiError(null)
     try {
       const res = await incidentAPI.create({
         title: newData.title,
@@ -231,58 +254,34 @@ export default function App() {
         department: newData.department,
       })
       if (res?.data?.incident) {
-        createdRecord = normalizeIncident(res.data.incident)
+        const createdRecord = normalizeIncident(res.data.incident)
+        setAllIncidents((current) => [createdRecord, ...current])
+        setActivePage('Overview')
       }
-    } catch {
-      // Fallback
+    } catch (err) {
+      const msg = err.data?.message || err.message || 'Failed to register incident in database.'
+      setApiError(msg)
+      throw err
+    } finally {
+      setLoading(false)
     }
-
-    if (!createdRecord) {
-      const nextNumber = 143 + allIncidents.length - INITIAL_INCIDENTS.length
-      createdRecord = {
-        id: `INC-2026-${String(nextNumber).padStart(4, '0')}`,
-        title: newData.title,
-        type: newData.type,
-        location: newData.location,
-        department: newData.department,
-        severity: newData.severity,
-        status: 'New',
-        assignee: newData.assignee,
-        assignedOfficer: newData.assignedOfficer,
-        assignedStaff: newData.assignedStaff,
-        time: 'Just now',
-        deadline: newData.severity === 'Critical' ? '15 mins' : '2 hours',
-        isOverdue: false,
-        isEscalated: false,
-        escalationTier: null,
-        sensor: 'Manual Field Report',
-        notes: `Reported by ${currentUser.name} (${currentUser.role})`,
-      }
-    }
-
-    setAllIncidents((current) => [createdRecord, ...current])
-    setActivePage('Overview')
   }
 
-  function handleIssueDirective(directive) {
-    const newDirective = {
-      id: Date.now(),
-      ...directive,
-      issuer: currentUser.name,
+  async function handleIssueDirective(directive) {
+    setApiError(null)
+    try {
+      const res = await directiveAPI.create(directive)
+      if (res?.data?.directive) {
+        setDirectives((current) => [res.data.directive, ...current])
+      }
+      // Re-sync incidents to reflect the new directive notes
+      const incRes = await incidentAPI.list()
+      if (incRes?.data?.incidents) {
+        setAllIncidents(incRes.data.incidents.map(normalizeIncident))
+      }
+    } catch (err) {
+      setApiError(err.data?.message || err.message || 'Failed to issue executive directive.')
     }
-    setDirectives((current) => [newDirective, ...current])
-
-    // Update target incident
-    setAllIncidents((current) =>
-      current.map((inc) =>
-        inc.id === directive.incidentId
-          ? {
-              ...inc,
-              notes: `${inc.notes ? inc.notes + ' ' : ''}[Directive: ${directive.directiveType} - "${directive.instructions}"]`,
-            }
-          : inc,
-      ),
-    )
   }
 
   // Unauthenticated: Render Login Screen
@@ -294,7 +293,7 @@ export default function App() {
   const roleConfig = ROLE_CONFIGS[currentUser.role] || ROLE_CONFIGS.ADMIN
   const roleIncidents = roleConfig.filterIncidents(allIncidents, currentUser)
 
-  // Derived Scoped Metrics
+  // Derived Scoped Metrics (calculated dynamically from actual MongoDB incidents)
   const criticalCount = roleIncidents.filter(
     (i) => i.severity === 'Critical' && i.status !== 'Resolved',
   ).length
@@ -308,6 +307,22 @@ export default function App() {
       i.assignedOfficer === currentUser.name ||
       i.assignedStaff === currentUser.name,
   ).length
+  const tamperedSensors = sensors.filter((d) => d.status?.toLowerCase().includes('tamper'))
+  const complianceRate = roleIncidents.length > 0
+    ? `${Math.round(((roleIncidents.length - overdueCount) / roleIncidents.length) * 100)}%`
+    : '100%'
+
+  const acknowledgedWithTime = roleIncidents.filter((i) => i.detectedAt && i.acknowledgedAt)
+  const avgAckMins = acknowledgedWithTime.length
+    ? Math.max(1, Math.round(acknowledgedWithTime.reduce((sum, i) => sum + (new Date(i.acknowledgedAt) - new Date(i.detectedAt)), 0) / (acknowledgedWithTime.length * 60000))) + ' mins'
+    : 'N/A'
+
+  const resolvedWithTime = roleIncidents.filter((i) => i.detectedAt && i.resolvedAt)
+  const avgResMins = resolvedWithTime.length
+    ? Math.max(1, Math.round(resolvedWithTime.reduce((sum, i) => sum + (new Date(i.resolvedAt) - new Date(i.detectedAt)), 0) / (resolvedWithTime.length * 60000))) + ' mins'
+    : 'N/A'
+
+  const tier2CouncilCases = roleIncidents.filter((i) => i.isEscalated && i.escalationTier?.includes('Tier 2')).length
 
   const userInitials = (currentUser.name || 'User')
     .split(' ')
@@ -331,7 +346,7 @@ export default function App() {
           if (item.badgeKey === 'escalated') badgeValue = escalatedCount
           if (item.badgeKey === 'assigned') badgeValue = assignedCount
           if (item.badgeKey === 'tampered') {
-            badgeValue = SENSOR_DEVICES.filter((d) => d.status.includes('Tamper')).length
+            badgeValue = tamperedSensors.length
           }
 
           return (
@@ -398,7 +413,7 @@ export default function App() {
           </span>
           <button
             type="button"
-            onClick={loadIncidents}
+            onClick={loadDashboardData}
             disabled={loading}
             className="flex items-center gap-1 rounded font-medium text-[#a94064] hover:underline disabled:opacity-50"
           >
@@ -503,7 +518,7 @@ export default function App() {
             <div className="flex items-center gap-2 sm:gap-3">
               <button
                 type="button"
-                onClick={loadIncidents}
+                onClick={loadDashboardData}
                 disabled={loading}
                 aria-label="Sync with backend API"
                 title="Sync with backend API"
@@ -589,6 +604,32 @@ export default function App() {
               </div>
             </div>
           </header>
+
+          {/* API Error Alert Banner */}
+          {apiError && (
+            <div className="mx-4 mt-4 flex items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-xs text-rose-800 md:mx-8">
+              <div className="flex items-center gap-2">
+                <AlertTriangle size={16} className="shrink-0 text-rose-600" />
+                <span>{apiError}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={loadDashboardData}
+                  className="rounded-lg bg-rose-600 px-3 py-1 font-semibold text-white hover:bg-rose-700"
+                >
+                  Retry
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setApiError(null)}
+                  className="rounded-lg border border-rose-300 px-2 py-1 text-rose-700 hover:bg-rose-100"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Body Content */}
           <div className="mx-auto max-w-[1600px] p-4 md:p-8">
@@ -687,10 +728,8 @@ export default function App() {
                       />
                       <MetricCard
                         label="Camera Tampering"
-                        value={
-                          SENSOR_DEVICES.filter((d) => d.status.includes('Tamper')).length
-                        }
-                        note="CAM-12 obstruction flagged"
+                        value={tamperedSensors.length}
+                        note={tamperedSensors.length > 0 ? `${tamperedSensors.length} camera issue flagged` : 'No tampering detected'}
                         icon={Camera}
                         iconStyle="bg-violet-50 text-violet-700"
                       />
@@ -800,8 +839,8 @@ export default function App() {
                       />
                       <MetricCard
                         label="Cross-Dept Compliance"
-                        value="85.7%"
-                        note="SLA timeline adherence"
+                        value={complianceRate}
+                        note={roleIncidents.length ? `${roleIncidents.length - overdueCount}/${roleIncidents.length} SLA compliant` : 'No incident backlog'}
                         icon={CheckCircle2}
                         iconStyle="bg-emerald-50 text-emerald-600"
                       />
@@ -979,40 +1018,50 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {SENSOR_DEVICES.map((device) => (
-                    <div
-                      key={device.id}
-                      className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm"
-                    >
-                      <div className="flex items-start justify-between">
-                        <span className="font-mono text-xs font-bold text-slate-500">{device.id}</span>
-                        <span
-                          className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${
-                            device.status.includes('Alarm')
-                              ? 'bg-rose-100 text-rose-800'
-                              : device.status.includes('Tamper')
-                                ? 'bg-violet-100 text-violet-800'
-                                : 'bg-emerald-100 text-emerald-800'
-                          }`}
-                        >
-                          {device.status}
-                        </span>
-                      </div>
-                      <h4 className="mt-3 text-sm font-bold text-slate-900">{device.name}</h4>
-                      <p className="mt-1 text-xs text-slate-500">{device.location}</p>
+                {sensors.length === 0 ? (
+                  <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center text-sm text-slate-500">
+                    <Camera size={36} className="mx-auto mb-3 text-slate-400 opacity-60" />
+                    <p className="font-semibold text-slate-700">No camera or sensory infrastructure registered yet.</p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      Devices configured in MongoDB Atlas will stream telemetry here. Run <code>npm run seed:sample</code> to populate baseline test sensors.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    {sensors.map((device) => (
+                      <div
+                        key={device.sensorId || device._id || device.id}
+                        className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm"
+                      >
+                        <div className="flex items-start justify-between">
+                          <span className="font-mono text-xs font-bold text-slate-500">{device.sensorId || device.id}</span>
+                          <span
+                            className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${
+                              device.status?.includes('Alarm')
+                                ? 'bg-rose-100 text-rose-800'
+                                : device.status?.includes('Tamper')
+                                  ? 'bg-violet-100 text-violet-800'
+                                  : 'bg-emerald-100 text-emerald-800'
+                            }`}
+                          >
+                            {device.status}
+                          </span>
+                        </div>
+                        <h4 className="mt-3 text-sm font-bold text-slate-900">{device.name}</h4>
+                        <p className="mt-1 text-xs text-slate-500">{device.location}</p>
 
-                      <div className="mt-4 rounded-xl bg-slate-50 p-3 text-xs">
-                        <p className="font-medium text-slate-700">Telemetry Status:</p>
-                        <p className="mt-0.5 text-slate-500">{device.issue}</p>
-                        <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
-                          <span>Health: {device.health}</span>
-                          <span>Ping: {device.lastPing}</span>
+                        <div className="mt-4 rounded-xl bg-slate-50 p-3 text-xs">
+                          <p className="font-medium text-slate-700">Telemetry Status:</p>
+                          <p className="mt-0.5 text-slate-500">{device.issue}</p>
+                          <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
+                            <span>Health: {device.health}</span>
+                            <span>Ping: {device.lastPing}</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </section>
             )}
 
@@ -1029,42 +1078,66 @@ export default function App() {
                 </div>
 
                 <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
-                  <table className="w-full text-left">
-                    <thead className="bg-slate-50/80 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                      <tr>
-                        <th className="px-5 py-3.5">Personnel Name & Email</th>
-                        <th className="px-4 py-3.5">Role Authorization</th>
-                        <th className="px-4 py-3.5">Department</th>
-                        <th className="px-4 py-3.5">Assigned Cases</th>
-                        <th className="px-4 py-3.5">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 text-xs">
-                      {CAMPUS_STAFF_MEMBERS.map((member) => (
-                        <tr key={member.email} className="hover:bg-slate-50/70">
-                          <td className="px-5 py-4">
-                            <p className="font-semibold text-slate-800">{member.name}</p>
-                            <p className="text-[11px] text-slate-400">{member.email}</p>
-                          </td>
-                          <td className="px-4 py-4">
-                            <span className="rounded bg-[#f4e6eb] px-2 py-0.5 text-[11px] font-bold text-[#8c2f50]">
-                              {member.role}
-                            </span>
-                          </td>
-                          <td className="px-4 py-4 text-slate-600">{member.department}</td>
-                          <td className="px-4 py-4 font-semibold text-slate-700">
-                            {member.assignedCases} active
-                          </td>
-                          <td className="px-4 py-4">
-                            <span className="inline-flex items-center gap-1.5 font-medium text-emerald-700">
-                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                              {member.status}
-                            </span>
-                          </td>
+                  {users.length === 0 ? (
+                    <div className="p-8 text-center text-xs text-slate-500">
+                      No user records retrieved from database yet. Run <code>npm run seed:sample</code> to provision demo personnel.
+                    </div>
+                  ) : (
+                    <table className="w-full text-left">
+                      <thead className="bg-slate-50/80 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                        <tr>
+                          <th className="px-5 py-3.5">Personnel Name & Email</th>
+                          <th className="px-4 py-3.5">Role Authorization</th>
+                          <th className="px-4 py-3.5">Department</th>
+                          <th className="px-4 py-3.5">Assigned Cases</th>
+                          <th className="px-4 py-3.5">Status</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-xs">
+                        {users.map((member) => {
+                          const assignedCasesCount = allIncidents.filter(
+                            (i) =>
+                              (i.assignedOfficer === member.name ||
+                                i.assignedStaff === member.name ||
+                                i.assignee === member.name) &&
+                              i.status !== 'Resolved',
+                          ).length
+
+                          return (
+                            <tr key={member.email} className="hover:bg-slate-50/70">
+                              <td className="px-5 py-4">
+                                <p className="font-semibold text-slate-800">{member.name}</p>
+                                <p className="text-[11px] text-slate-400">{member.email}</p>
+                              </td>
+                              <td className="px-4 py-4">
+                                <span className="rounded bg-[#f4e6eb] px-2 py-0.5 text-[11px] font-bold text-[#8c2f50]">
+                                  {member.role}
+                                </span>
+                              </td>
+                              <td className="px-4 py-4 text-slate-600">{member.department}</td>
+                              <td className="px-4 py-4 font-semibold text-slate-700">
+                                {assignedCasesCount} active
+                              </td>
+                              <td className="px-4 py-4">
+                                <span
+                                  className={`inline-flex items-center gap-1.5 font-medium ${
+                                    member.isActive ? 'text-emerald-700' : 'text-slate-400'
+                                  }`}
+                                >
+                                  <span
+                                    className={`h-1.5 w-1.5 rounded-full ${
+                                      member.isActive ? 'bg-emerald-500' : 'bg-slate-400'
+                                    }`}
+                                  />
+                                  {member.isActive ? 'Active' : 'Inactive'}
+                                </span>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
               </section>
             )}
@@ -1083,37 +1156,57 @@ export default function App() {
                   <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                     <h3 className="font-bold text-slate-900">Coordinator Case Load</h3>
                     <div className="mt-4 space-y-3">
-                      {CAMPUS_STAFF_MEMBERS.filter((m) =>
+                      {users
+                        .filter((m) =>
+                          ['DEPT_HEAD', 'SECURITY_OFFICER', 'FACULTY_STAFF'].includes(m.role),
+                        )
+                        .map((m) => {
+                          const workload = allIncidents.filter(
+                            (i) =>
+                              (i.assignedOfficer === m.name ||
+                                i.assignedStaff === m.name ||
+                                i.assignee === m.name) &&
+                              i.status !== 'Resolved',
+                          ).length
+
+                          return (
+                            <div
+                              key={m.email || m.name}
+                              className="flex items-center justify-between border-b border-slate-100 pb-2 text-xs"
+                            >
+                              <div>
+                                <p className="font-semibold text-slate-800">{m.name}</p>
+                                <p className="text-[11px] text-slate-400">{m.department}</p>
+                              </div>
+                              <span className="rounded-full bg-slate-100 px-2.5 py-1 font-bold text-slate-700">
+                                {workload} cases
+                              </span>
+                            </div>
+                          )
+                        })}
+                      {users.filter((m) =>
                         ['DEPT_HEAD', 'SECURITY_OFFICER', 'FACULTY_STAFF'].includes(m.role),
-                      ).map((m) => (
-                        <div key={m.name} className="flex items-center justify-between border-b border-slate-100 pb-2 text-xs">
-                          <div>
-                            <p className="font-semibold text-slate-800">{m.name}</p>
-                            <p className="text-[11px] text-slate-400">{m.department}</p>
-                          </div>
-                          <span className="rounded-full bg-slate-100 px-2.5 py-1 font-bold text-slate-700">
-                            {m.assignedCases} cases
-                          </span>
-                        </div>
-                      ))}
+                      ).length === 0 && (
+                        <p className="text-xs text-slate-400">No department coordinators provisioned yet.</p>
+                      )}
                     </div>
                   </div>
 
                   <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                     <h3 className="font-bold text-slate-900">SLA Resolution Thresholds</h3>
-                    <p className="mt-1 text-xs text-slate-500">School of Engineering compliance benchmark</p>
+                    <p className="mt-1 text-xs text-slate-500">Institutional SLA compliance benchmark</p>
                     <div className="mt-4 space-y-3 text-xs">
                       <div className="flex justify-between">
                         <span className="text-slate-600">Average acknowledgement</span>
-                        <span className="font-bold text-emerald-700">4.2 mins</span>
+                        <span className="font-bold text-emerald-700">{avgAckMins}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-slate-600">Average resolution time</span>
-                        <span className="font-bold text-slate-800">38 mins</span>
+                        <span className="font-bold text-slate-800">{avgResMins}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-slate-600">Pending Council escalations</span>
-                        <span className="font-bold text-rose-600">1 case</span>
+                        <span className="font-bold text-rose-600">{tier2CouncilCases} case(s)</span>
                       </div>
                     </div>
                   </div>
@@ -1148,22 +1241,28 @@ export default function App() {
                     Recorded actions with verified timestamps and authorization signatures.
                   </p>
 
-                  <div className="mt-5 space-y-3">
-                    {directives.map((d) => (
-                      <div key={d.id} className="rounded-xl border border-slate-200/80 p-4 text-xs">
-                        <div className="flex items-start justify-between">
-                          <span className="font-bold text-slate-900">{d.directiveType}</span>
-                          <span className="rounded bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">
-                            {d.issuedAt}
-                          </span>
+                  {directives.length === 0 ? (
+                    <div className="mt-5 rounded-xl border border-dashed border-slate-200 p-8 text-center text-xs text-slate-400">
+                      No executive directives recorded in the database yet.
+                    </div>
+                  ) : (
+                    <div className="mt-5 space-y-3">
+                      {directives.map((d) => (
+                        <div key={d._id || d.id} className="rounded-xl border border-slate-200/80 p-4 text-xs">
+                          <div className="flex items-start justify-between">
+                            <span className="font-bold text-slate-900">{d.directiveType}</span>
+                            <span className="rounded bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">
+                              {d.issuedAt}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-slate-700 leading-relaxed">{d.instructions}</p>
+                          <p className="mt-2 font-mono text-[11px] text-slate-400">
+                            Target: {d.incidentId} · Issuer: {d.issuer}
+                          </p>
                         </div>
-                        <p className="mt-2 text-slate-700 leading-relaxed">{d.instructions}</p>
-                        <p className="mt-2 font-mono text-[11px] text-slate-400">
-                          Target: {d.incidentId} · Issuer: {d.issuer}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </section>
             )}

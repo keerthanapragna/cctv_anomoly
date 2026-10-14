@@ -306,7 +306,11 @@ export default function IncidentTable({
             {filtered.length === 0 && (
               <tr>
                 <td colSpan="5" className="px-5 py-12 text-center text-sm text-slate-500">
-                  {emptyMessage}
+                  {incidents.length === 0
+                    ? 'No detections recorded yet.'
+                    : (searchTerm || statusFilter !== 'ALL')
+                      ? 'No incidents match your search or filter.'
+                      : emptyMessage}
                 </td>
               </tr>
             )}

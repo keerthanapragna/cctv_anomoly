@@ -11,6 +11,8 @@ import { notFoundHandler, errorHandler } from './middleware/errorMiddleware.js'
 import authRoutes from './routes/authRoutes.js'
 import userRoutes from './routes/userRoutes.js'
 import incidentRoutes from './routes/incidentRoutes.js'
+import sensorRoutes from './routes/sensorRoutes.js'
+import directiveRoutes from './routes/directiveRoutes.js'
 
 const app = express()
 
@@ -19,8 +21,8 @@ app.use(helmet())
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (e.g. mobile apps, curl) or localhost dev ports
-      if (!origin || origin.startsWith('http://localhost:')) {
+      // Allow requests with no origin (e.g. mobile apps, curl) or localhost / 127.0.0.1 dev ports
+      if (!origin || origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
         return callback(null, true)
       }
       if (origin === env.CLIENT_URL) {
@@ -39,8 +41,8 @@ if (env.NODE_ENV === 'development') {
   app.use(morgan('dev'))
 }
 
-// Health Check Endpoint
-app.get('/api/health', (req, res) => {
+// Health Check Endpoint (supports both /api/health and /api/v1/health)
+const healthHandler = (req, res) => {
   const dbStatus =
     mongoose.connection.readyState === 1
       ? 'connected'
@@ -58,12 +60,17 @@ app.get('/api/health', (req, res) => {
       database: dbStatus,
     },
   })
-})
+}
+
+app.get('/api/health', healthHandler)
+app.get('/api/v1/health', healthHandler)
 
 // Routes
 app.use('/api/v1/auth', authRoutes)
 app.use('/api/v1/users', userRoutes)
 app.use('/api/v1/incidents', incidentRoutes)
+app.use('/api/v1/sensors', sensorRoutes)
+app.use('/api/v1/directives', directiveRoutes)
 
 // Central 404 & Error Handling
 app.use(notFoundHandler)
