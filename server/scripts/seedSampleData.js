@@ -106,149 +106,455 @@ const SAMPLE_SENSORS = [
   },
 ]
 
-const SAMPLE_INCIDENTS = [
-  {
-    incidentId: 'INC-2026-0142',
-    title: 'Critical solvent smoke alarm',
-    hazardCategory: 'Fire / Smoke',
-    location: {
-      building: 'Block B',
-      floor: 'Floor 1',
-      zone: 'Chemistry Lab Room 104',
-      rawText: 'Block B · Chemistry Lab Room 104',
+function makeDates(hoursAgo, ackDelayMins, responseDelayMins, resolveDelayMins) {
+  const detectedAt = new Date(Date.now() - hoursAgo * 3600 * 1000)
+  const assignedAt = new Date(detectedAt.getTime() + 60 * 1000) // 1 min after detection
+  const acknowledgedAt = ackDelayMins !== null ? new Date(detectedAt.getTime() + ackDelayMins * 60 * 1000) : null
+  const responseStartedAt = responseDelayMins !== null ? new Date(detectedAt.getTime() + responseDelayMins * 60 * 1000) : null
+  const resolvedAt = resolveDelayMins !== null ? new Date(detectedAt.getTime() + resolveDelayMins * 60 * 1000) : null
+
+  return { detectedAt, assignedAt, acknowledgedAt, responseStartedAt, resolvedAt }
+}
+
+async function buildSampleIncidents(userMap) {
+  const admin = userMap[ROLES.ADMIN]
+  const officer = userMap[ROLES.SECURITY_OFFICER]
+  const faculty = userMap[ROLES.FACULTY_STAFF]
+  const deptHead = userMap[ROLES.DEPT_HEAD]
+  const authority = userMap[ROLES.HIGHER_AUTHORITY]
+
+  // Time milestones
+  const t1 = makeDates(2, 4, 8, null) // Under review
+  const t2 = makeDates(5, 7, 12, null) // Investigating
+  const t3 = makeDates(24, 6, 14, 45) // Resolved
+  const t4 = makeDates(30, null, null, null) // Assigned, unacknowledged
+  const t5 = makeDates(48, 10, 20, null) // Escalated
+  const t6 = makeDates(72, 3, 6, 22) // Fall detection (Resolved)
+  const t7 = makeDates(96, 5, 9, 35) // Dog attack detection (Resolved)
+  const t8 = makeDates(120, 4, 8, 28) // Fight detection (Resolved)
+  const t9 = makeDates(140, 8, 15, 60) // Dept head robotics (Resolved)
+  const t10 = makeDates(168, 12, 25, 90) // Faculty fume hood (Resolved)
+
+  return [
+    {
+      incidentId: 'INC-2026-0142',
+      title: 'Critical solvent smoke alarm',
+      hazardCategory: 'Fire / Smoke',
+      location: {
+        building: 'Block B',
+        floor: 'Floor 1',
+        zone: 'Chemistry Lab Room 104',
+        rawText: 'Block B · Chemistry Lab Room 104',
+      },
+      department: 'Chemistry & Science Labs',
+      severity: 'Critical',
+      status: 'Under review',
+      assigneeLabel: 'Campus Security',
+      assignedTo: officer._id,
+      assignedOfficer: officer.name,
+      assignedStaff: faculty.name,
+      deadline: '15 mins (Urgent)',
+      isOverdue: false,
+      isEscalated: true,
+      escalationTier: 'Tier 2 (Higher Authority)',
+      ...t1,
+      evidenceMetadata: {
+        sensorId: 'SMOKE-B2-04',
+        sensorStatus: 'Alarm active',
+        snapshotUrl: '',
+        tamperFlags: [],
+      },
+      notes: '[Sample Data] Automated fire dampers engaged. Lab evacuated.',
+      assignmentHistory: [
+        {
+          assignedTo: officer._id,
+          assignedOfficer: officer.name,
+          assigneeLabel: 'Campus Security',
+          department: 'Chemistry & Science Labs',
+          assignedAt: t1.assignedAt,
+          assignedBy: admin._id,
+          note: 'Assigned to Central Security Division',
+        },
+      ],
     },
-    department: 'Chemistry & Science Labs',
-    severity: 'Critical',
-    status: 'Under review',
-    assigneeLabel: 'Campus Security',
-    assignedOfficer: 'Officer Davis',
-    assignedStaff: 'Prof. Miller',
-    deadline: '15 mins (Urgent)',
-    isOverdue: false,
-    isEscalated: true,
-    escalationTier: 'Tier 2 (Higher Authority)',
-    evidenceMetadata: {
-      sensorId: 'SMOKE-B2-04',
-      sensorStatus: 'Alarm active',
-      snapshotUrl: '',
-      tamperFlags: [],
+    {
+      incidentId: 'INC-2026-0140',
+      title: 'Camera obstruction & spray obscuration',
+      hazardCategory: 'Camera tampering',
+      location: {
+        building: 'South Parking Structure',
+        floor: 'Ground',
+        zone: 'Zone C',
+        rawText: 'South Parking Structure · CAM-12',
+      },
+      department: 'Central Physical Security',
+      severity: 'Medium',
+      status: 'Investigating',
+      assigneeLabel: 'Campus Security',
+      assignedTo: officer._id,
+      assignedOfficer: officer.name,
+      assignedStaff: null,
+      deadline: '90 mins',
+      isOverdue: false,
+      isEscalated: false,
+      escalationTier: null,
+      ...t2,
+      evidenceMetadata: {
+        sensorId: 'CAM-12',
+        sensorStatus: 'Tampered / Degraded signal',
+        snapshotUrl: '',
+        tamperFlags: ['spray_paint_detected'],
+      },
+      notes: '[Sample Data] Physical lens inspection underway by unit.',
+      assignmentHistory: [
+        {
+          assignedTo: officer._id,
+          assignedOfficer: officer.name,
+          assigneeLabel: 'Campus Security',
+          department: 'Central Physical Security',
+          assignedAt: t2.assignedAt,
+          assignedBy: admin._id,
+          note: 'Assigned to Officer Davis',
+        },
+      ],
     },
-    notes: '[Sample Data] Automated fire dampers engaged. Lab evacuated.',
-  },
-  {
-    incidentId: 'INC-2026-0140',
-    title: 'Camera obstruction & spray obscuration',
-    hazardCategory: 'Camera tampering',
-    location: {
-      building: 'South Parking Structure',
-      floor: 'Ground',
-      zone: 'Zone C',
-      rawText: 'South Parking Structure · CAM-12',
+    {
+      incidentId: 'INC-2026-0139',
+      title: 'Unauthorized server laboratory access',
+      hazardCategory: 'Unauthorized access',
+      location: {
+        building: 'Engineering Lab',
+        floor: 'Floor 2',
+        zone: 'Room 210',
+        rawText: 'Engineering Lab · Floor 2 · Room 210',
+      },
+      department: 'School of Engineering',
+      severity: 'Medium',
+      status: 'Resolved',
+      assigneeLabel: deptHead.name,
+      assignedTo: deptHead._id,
+      assignedOfficer: null,
+      assignedStaff: deptHead.name,
+      deadline: 'Met',
+      isOverdue: false,
+      isEscalated: false,
+      escalationTier: null,
+      ...t3,
+      resolvedBy: deptHead._id,
+      evidenceMetadata: {
+        sensorId: 'RFID-DOOR-ENG2',
+        sensorStatus: 'Normal',
+        snapshotUrl: '',
+        tamperFlags: [],
+      },
+      notes: '[Sample Data] Access verified for authorized research fellow.',
+      resolutionDetails: 'Verified security logs with faculty coordinator.',
+      assignmentHistory: [
+        {
+          assignedTo: deptHead._id,
+          assignedStaff: deptHead.name,
+          assigneeLabel: deptHead.name,
+          department: 'School of Engineering',
+          assignedAt: t3.assignedAt,
+          assignedBy: admin._id,
+          note: 'Assigned to Dept Head Dr. Reynolds',
+        },
+      ],
     },
-    department: 'Central Physical Security',
-    severity: 'Medium',
-    status: 'Investigating',
-    assigneeLabel: 'Campus Security',
-    assignedOfficer: 'Officer Davis',
-    assignedStaff: null,
-    deadline: '90 mins',
-    isOverdue: false,
-    isEscalated: false,
-    escalationTier: null,
-    evidenceMetadata: {
-      sensorId: 'CAM-12',
-      sensorStatus: 'Tampered / Degraded signal',
-      snapshotUrl: '',
-      tamperFlags: ['spray_paint_detected'],
+    {
+      incidentId: 'INC-2026-0138',
+      title: 'Chemical solvent container breach',
+      hazardCategory: 'Environmental hazard',
+      location: {
+        building: 'Chemistry Building',
+        floor: 'Basement',
+        zone: 'Solvent Depository',
+        rawText: 'Chemistry Building · Solvent Depository',
+      },
+      department: 'Chemistry & Science Labs',
+      severity: 'High',
+      status: 'Assigned',
+      assigneeLabel: faculty.name,
+      assignedTo: faculty._id,
+      assignedOfficer: officer.name,
+      assignedStaff: faculty.name,
+      deadline: 'Overdue by 25 mins',
+      isOverdue: true,
+      isEscalated: true,
+      escalationTier: 'Tier 1 (Dept Head)',
+      ...t4,
+      evidenceMetadata: {
+        sensorId: 'VAPOR-DETECTOR-CHEM3',
+        sensorStatus: 'Threshold Warning',
+        snapshotUrl: '',
+        tamperFlags: [],
+      },
+      notes: '[Sample Data] Awaiting specialized neutralizer kit confirmation.',
+      assignmentHistory: [
+        {
+          assignedTo: faculty._id,
+          assignedStaff: faculty.name,
+          assigneeLabel: faculty.name,
+          department: 'Chemistry & Science Labs',
+          assignedAt: t4.assignedAt,
+          assignedBy: admin._id,
+          note: 'Assigned to Prof. Miller',
+        },
+      ],
     },
-    notes: '[Sample Data] Physical lens inspection underway by unit.',
-  },
-  {
-    incidentId: 'INC-2026-0139',
-    title: 'Unauthorized server laboratory access',
-    hazardCategory: 'Unauthorized access',
-    location: {
-      building: 'Engineering Lab',
-      floor: 'Floor 2',
-      zone: 'Room 210',
-      rawText: 'Engineering Lab · Floor 2 · Room 210',
+    {
+      incidentId: 'INC-2026-0137',
+      title: 'HVAC thermal runaway in Main Datacenter',
+      hazardCategory: 'Environmental hazard',
+      location: {
+        building: 'Technology Annex',
+        floor: 'Floor 1',
+        zone: 'Server Hall A',
+        rawText: 'Technology Annex · Server Hall A',
+      },
+      department: 'School of Engineering',
+      severity: 'Critical',
+      status: 'Under review',
+      assigneeLabel: 'Campus Security',
+      assignedTo: officer._id,
+      assignedOfficer: officer.name,
+      assignedStaff: null,
+      deadline: 'Immediate (Directive Required)',
+      isOverdue: true,
+      isEscalated: true,
+      escalationTier: 'Tier 2 (Higher Authority)',
+      ...t5,
+      evidenceMetadata: {
+        sensorId: 'THERMAL-SENSOR-DC1',
+        sensorStatus: 'Critical 41°C',
+        snapshotUrl: '',
+        tamperFlags: [],
+      },
+      notes: '[Sample Data] Primary chiller failed; secondary cooling initiated.',
+      assignmentHistory: [
+        {
+          assignedTo: officer._id,
+          assignedOfficer: officer.name,
+          assigneeLabel: 'Campus Security',
+          department: 'Central Physical Security',
+          assignedAt: t5.assignedAt,
+          assignedBy: admin._id,
+          note: 'Assigned to Officer Davis',
+        },
+      ],
     },
-    department: 'School of Engineering',
-    severity: 'Medium',
-    status: 'Resolved',
-    assigneeLabel: 'Dr. Katherine Reynolds',
-    assignedOfficer: null,
-    assignedStaff: 'Dr. Katherine Reynolds',
-    deadline: 'Met',
-    isOverdue: false,
-    isEscalated: false,
-    escalationTier: null,
-    evidenceMetadata: {
-      sensorId: 'RFID-DOOR-ENG2',
-      sensorStatus: 'Normal',
-      snapshotUrl: '',
-      tamperFlags: [],
+    {
+      incidentId: 'INC-2026-0145',
+      title: 'Slip and fall detected at Central Plaza',
+      hazardCategory: 'Fall detection',
+      location: {
+        building: 'Central Plaza',
+        floor: 'Ground',
+        zone: 'Plaza Fountain East',
+        rawText: 'Central Plaza · Fountain Area',
+      },
+      department: 'Central Physical Security',
+      severity: 'Critical',
+      status: 'Resolved',
+      assigneeLabel: 'Campus Security',
+      assignedTo: officer._id,
+      assignedOfficer: officer.name,
+      assignedStaff: null,
+      deadline: 'Met',
+      isOverdue: false,
+      isEscalated: false,
+      ...t6,
+      resolvedBy: officer._id,
+      resolutionDetails: 'First aid unit dispatched. Subject assisted safely with zero complications.',
+      evidenceMetadata: {
+        sensorId: 'CAM-PLAZA-01',
+        sensorStatus: 'Normal',
+        snapshotUrl: '',
+        tamperFlags: [],
+      },
+      notes: '[AI Perception Alarm] Computer vision posture keypoint anomaly confirmed.',
+      assignmentHistory: [
+        {
+          assignedTo: officer._id,
+          assignedOfficer: officer.name,
+          assigneeLabel: 'Campus Security',
+          department: 'Central Physical Security',
+          assignedAt: t6.assignedAt,
+          assignedBy: admin._id,
+          note: 'Auto-assigned by AI Hazard Perception pipeline',
+        },
+      ],
     },
-    notes: '[Sample Data] Access verified for authorized research fellow.',
-    resolutionDetails: 'Verified security logs with faculty coordinator.',
-  },
-  {
-    incidentId: 'INC-2026-0138',
-    title: 'Chemical solvent container breach',
-    hazardCategory: 'Environmental hazard',
-    location: {
-      building: 'Chemistry Building',
-      floor: 'Basement',
-      zone: 'Solvent Depository',
-      rawText: 'Chemistry Building · Solvent Depository',
+    {
+      incidentId: 'INC-2026-0146',
+      title: 'Aggressive stray dog detected near West Dormitory',
+      hazardCategory: 'Dog attack detection',
+      location: {
+        building: 'West Dormitory Perimeter',
+        floor: 'Ground',
+        zone: 'Perimeter Gate 4',
+        rawText: 'West Dormitory · Gate 4 Path',
+      },
+      department: 'Central Physical Security',
+      severity: 'High',
+      status: 'Resolved',
+      assigneeLabel: 'Campus Security',
+      assignedTo: officer._id,
+      assignedOfficer: officer.name,
+      assignedStaff: null,
+      deadline: 'Met',
+      isOverdue: false,
+      isEscalated: false,
+      ...t7,
+      resolvedBy: officer._id,
+      resolutionDetails: 'Animal control escorted stray animal outside campus grounds.',
+      evidenceMetadata: {
+        sensorId: 'CAM-WEST-03',
+        sensorStatus: 'Normal',
+        snapshotUrl: '',
+        tamperFlags: [],
+      },
+      notes: '[AI Perception Alarm] YOLO detection: canine proximity alert.',
+      assignmentHistory: [
+        {
+          assignedTo: officer._id,
+          assignedOfficer: officer.name,
+          assigneeLabel: 'Campus Security',
+          department: 'Central Physical Security',
+          assignedAt: t7.assignedAt,
+          assignedBy: admin._id,
+          note: 'Assigned to Officer Davis',
+        },
+      ],
     },
-    department: 'Chemistry & Science Labs',
-    severity: 'High',
-    status: 'Assigned',
-    assigneeLabel: 'Prof. Miller',
-    assignedOfficer: 'Officer Davis',
-    assignedStaff: 'Prof. Miller',
-    deadline: 'Overdue by 25 mins',
-    isOverdue: true,
-    isEscalated: true,
-    escalationTier: 'Tier 1 (Dept Head)',
-    evidenceMetadata: {
-      sensorId: 'VAPOR-DETECTOR-CHEM3',
-      sensorStatus: 'Threshold Warning',
-      snapshotUrl: '',
-      tamperFlags: [],
+    {
+      incidentId: 'INC-2026-0147',
+      title: 'Physical altercation in Student Amphitheater',
+      hazardCategory: 'Fight detection',
+      location: {
+        building: 'Student Amphitheater',
+        floor: 'Ground',
+        zone: 'Tier 1 Seating',
+        rawText: 'Amphitheater · Tier 1',
+      },
+      department: 'Central Physical Security',
+      severity: 'High',
+      status: 'Resolved',
+      assigneeLabel: 'Campus Security',
+      assignedTo: officer._id,
+      assignedOfficer: officer.name,
+      assignedStaff: null,
+      deadline: 'Met',
+      isOverdue: false,
+      isEscalated: false,
+      ...t8,
+      resolvedBy: officer._id,
+      resolutionDetails: 'Campus security officers de-escalated verbal confrontation. Dispersed safely.',
+      evidenceMetadata: {
+        sensorId: 'CAM-AMPHI-02',
+        sensorStatus: 'Normal',
+        snapshotUrl: '',
+        tamperFlags: [],
+      },
+      notes: '[AI Perception Alarm] Violent motion optical flow anomaly detected.',
+      assignmentHistory: [
+        {
+          assignedTo: officer._id,
+          assignedOfficer: officer.name,
+          assigneeLabel: 'Campus Security',
+          department: 'Central Physical Security',
+          assignedAt: t8.assignedAt,
+          assignedBy: admin._id,
+          note: 'Field patrol dispatched immediately',
+        },
+      ],
     },
-    notes: '[Sample Data] Awaiting specialized neutralizer kit confirmation.',
-  },
-  {
-    incidentId: 'INC-2026-0137',
-    title: 'HVAC thermal runaway in Main Datacenter',
-    hazardCategory: 'Environmental hazard',
-    location: {
-      building: 'Technology Annex',
-      floor: 'Floor 1',
-      zone: 'Server Hall A',
-      rawText: 'Technology Annex · Server Hall A',
+    {
+      incidentId: 'INC-2026-0148',
+      title: 'Robotics research lab thermal surge',
+      hazardCategory: 'Environmental hazard',
+      location: {
+        building: 'School of Engineering',
+        floor: 'Floor 3',
+        zone: 'Autonomous Robotics Lab',
+        rawText: 'Engineering Block · Room 302',
+      },
+      department: 'School of Engineering',
+      severity: 'Medium',
+      status: 'Resolved',
+      assigneeLabel: deptHead.name,
+      assignedTo: deptHead._id,
+      assignedOfficer: null,
+      assignedStaff: deptHead.name,
+      deadline: 'Met',
+      isOverdue: false,
+      isEscalated: false,
+      ...t9,
+      resolvedBy: deptHead._id,
+      resolutionDetails: 'Lithium battery charger disconnected and cooled. Thermal threshold normalized.',
+      evidenceMetadata: {
+        sensorId: 'THERMAL-ROBOT-01',
+        sensorStatus: 'Normal',
+        snapshotUrl: '',
+        tamperFlags: [],
+      },
+      notes: '[Lab Telemetry Alert] Thermal surge sensor logged 46°C spike.',
+      assignmentHistory: [
+        {
+          assignedTo: deptHead._id,
+          assignedStaff: deptHead.name,
+          assigneeLabel: deptHead.name,
+          department: 'School of Engineering',
+          assignedAt: t9.assignedAt,
+          assignedBy: admin._id,
+          note: 'Assigned to Dr. Reynolds',
+        },
+      ],
     },
-    department: 'School of Engineering',
-    severity: 'Critical',
-    status: 'Under review',
-    assigneeLabel: 'Campus Security',
-    assignedOfficer: 'Officer Davis',
-    assignedStaff: null,
-    deadline: 'Immediate (Directive Required)',
-    isOverdue: true,
-    isEscalated: true,
-    escalationTier: 'Tier 2 (Higher Authority)',
-    evidenceMetadata: {
-      sensorId: 'THERMAL-SENSOR-DC1',
-      sensorStatus: 'Critical 41°C',
-      snapshotUrl: '',
-      tamperFlags: [],
+    {
+      incidentId: 'INC-2026-0149',
+      title: 'Organic Chemistry Fume Hood Exhaust Drop',
+      hazardCategory: 'Environmental hazard',
+      location: {
+        building: 'Block B',
+        floor: 'Floor 2',
+        zone: 'Organic Chemistry Lab 208',
+        rawText: 'Block B · Organic Chemistry Lab 208',
+      },
+      department: 'Chemistry & Science Labs',
+      severity: 'High',
+      status: 'Resolved',
+      assigneeLabel: faculty.name,
+      assignedTo: faculty._id,
+      assignedOfficer: null,
+      assignedStaff: faculty.name,
+      deadline: 'Met',
+      isOverdue: false,
+      isEscalated: false,
+      ...t10,
+      resolvedBy: faculty._id,
+      resolutionDetails: 'Exhaust fan belt replaced by facilities maintenance. Flow rates verified.',
+      evidenceMetadata: {
+        sensorId: 'HOOD-FLOW-08',
+        sensorStatus: 'Normal',
+        snapshotUrl: '',
+        tamperFlags: [],
+      },
+      notes: '[Safety Monitor Alert] Air velocity dropped below 80 FPM benchmark.',
+      assignmentHistory: [
+        {
+          assignedTo: faculty._id,
+          assignedStaff: faculty.name,
+          assigneeLabel: faculty.name,
+          department: 'Chemistry & Science Labs',
+          assignedAt: t10.assignedAt,
+          assignedBy: admin._id,
+          note: 'Assigned to Prof. Miller',
+        },
+      ],
     },
-    notes: '[Sample Data] Primary chiller failed; secondary cooling initiated.',
-  },
-]
+  ]
+}
 
 async function seedSampleData() {
   try {
@@ -287,21 +593,56 @@ async function seedSampleData() {
       console.log(`       = ${sensorCount} sensors already exist in database. Preserved without modification.`)
     }
 
-    // 3. Seed Sample Incidents (check each incidentId)
-    console.log('[Seed] Checking sample incidents...')
-    let addedIncidents = 0
+    // 3. Seed Sample Incidents with accurate lifecycle timestamps
+    console.log('[Seed] Checking sample incidents with lifecycle timestamps...')
+    const sampleIncidents = await buildSampleIncidents(userMap)
     const adminUser = userMap[ROLES.ADMIN]
-    for (const incData of SAMPLE_INCIDENTS) {
+
+    for (const incData of sampleIncidents) {
       const existing = await Incident.findOne({ incidentId: incData.incidentId })
       if (!existing) {
         await Incident.create({
           ...incData,
           reportedBy: adminUser._id,
         })
-        addedIncidents++
         console.log(`       + Inserted sample incident: ${incData.incidentId} - ${incData.title}`)
       } else {
-        console.log(`       = Existing incident preserved: ${incData.incidentId}`)
+        // Enrich existing incident with lifecycle timestamps if missing
+        let modified = false
+        if (!existing.detectedAt && incData.detectedAt) {
+          existing.detectedAt = incData.detectedAt
+          modified = true
+        }
+        if (!existing.assignedAt && incData.assignedAt) {
+          existing.assignedAt = incData.assignedAt
+          modified = true
+        }
+        if (!existing.acknowledgedAt && incData.acknowledgedAt) {
+          existing.acknowledgedAt = incData.acknowledgedAt
+          modified = true
+        }
+        if (!existing.responseStartedAt && incData.responseStartedAt) {
+          existing.responseStartedAt = incData.responseStartedAt
+          modified = true
+        }
+        if (!existing.resolvedAt && incData.resolvedAt) {
+          existing.resolvedAt = incData.resolvedAt
+          modified = true
+        }
+        if (!existing.assignedTo && incData.assignedTo) {
+          existing.assignedTo = incData.assignedTo
+          modified = true
+        }
+        if ((!existing.assignmentHistory || existing.assignmentHistory.length === 0) && incData.assignmentHistory) {
+          existing.assignmentHistory = incData.assignmentHistory
+          modified = true
+        }
+        if (modified) {
+          await existing.save()
+          console.log(`       * Enriched lifecycle timestamps on: ${incData.incidentId}`)
+        } else {
+          console.log(`       = Existing incident preserved: ${incData.incidentId}`)
+        }
       }
     }
 

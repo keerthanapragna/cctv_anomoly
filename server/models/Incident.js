@@ -123,12 +123,29 @@ const incidentSchema = new mongoose.Schema(
     detectedAt: {
       type: Date,
       default: Date.now,
+      index: true,
+    },
+    assignedAt: {
+      type: Date,
+      default: null,
+      index: true,
     },
     acknowledgedAt: {
       type: Date,
       default: null,
+      index: true,
     },
     acknowledgedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    responseStartedAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    responseStartedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
       default: null,
@@ -136,12 +153,33 @@ const incidentSchema = new mongoose.Schema(
     resolvedAt: {
       type: Date,
       default: null,
+      index: true,
     },
     resolvedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
       default: null,
     },
+    assignmentHistory: [
+      {
+        assignedTo: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User',
+          default: null,
+        },
+        assignedOfficer: { type: String, default: null },
+        assignedStaff: { type: String, default: null },
+        assigneeLabel: { type: String, default: null },
+        department: { type: String, default: null },
+        assignedAt: { type: Date, default: Date.now },
+        assignedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User',
+          default: null,
+        },
+        note: { type: String, default: '' },
+      },
+    ],
     resolutionDetails: {
       type: String,
       trim: true,
@@ -204,5 +242,10 @@ incidentSchema.index({
   'location.rawText': 'text',
   department: 'text',
 })
+
+incidentSchema.index({ detectedAt: -1, status: 1 })
+incidentSchema.index({ department: 1, detectedAt: -1 })
+incidentSchema.index({ assignedTo: 1, status: 1 })
+incidentSchema.index({ hazardCategory: 1, severity: 1 })
 
 export const Incident = mongoose.model('Incident', incidentSchema)

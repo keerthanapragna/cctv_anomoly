@@ -2,7 +2,10 @@ import logging
 from dataclasses import dataclass
 from typing import Optional, List, Dict
 import numpy as np
-from ultralytics import YOLO
+try:
+    from ultralytics import YOLO
+except ImportError:
+    YOLO = None
 
 import src.config as cfg
 
@@ -117,6 +120,10 @@ class Detector:
         self.dog_fallback_tracker = FallbackTracker()    # Separate namespace for dog IDs
 
     def _load_model(self, model_path, fallback=None):
+        if YOLO is None:
+            raise RuntimeError(
+                "Ultralytics is not installed. Please install it with 'pip install ultralytics'."
+            )
         try:
             logger.info("Loading YOLO model: %s", model_path)
             return YOLO(model_path)

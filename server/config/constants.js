@@ -9,6 +9,9 @@ export const ROLES = Object.freeze({
 export const HAZARD_CATEGORIES = Object.freeze([
   'Fire / Smoke',
   'Human safety',
+  'Fall detection',
+  'Dog attack detection',
+  'Fight detection',
   'Camera tampering',
   'Unauthorized access',
   'Environmental hazard',

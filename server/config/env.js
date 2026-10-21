@@ -29,6 +29,7 @@ const envSchema = z.object({
     .min(16, { message: 'REFRESH_TOKEN_SECRET must be at least 16 characters' }),
   REFRESH_TOKEN_EXPIRES_IN: z.string().default('7d'),
   INGEST_API_KEY: z.string().min(8, { message: 'INGEST_API_KEY must be at least 8 characters' }),
+  INFERENCE_SERVICE_URL: z.string().default('http://127.0.0.1:8000'),
 })
 
 const parsedEnv = envSchema.safeParse(process.env)

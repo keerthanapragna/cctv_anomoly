@@ -17,17 +17,24 @@ import {
   Building2,
   Camera,
   RefreshCw,
+  Zap,
+  Play,
+  Upload,
+  Video,
+  VideoOff,
 } from 'lucide-react'
 
 import { DEMO_ACCOUNTS } from './data/mockData'
 import { ROLE_CONFIGS } from './utils/roleConfig'
-import { authAPI, incidentAPI, userAPI, sensorAPI, directiveAPI } from './services/api'
+import { authAPI, incidentAPI, userAPI, sensorAPI, directiveAPI, aiAPI, analyticsAPI } from './services/api'
 import MetricCard from './components/MetricCard'
 import IncidentTable from './components/IncidentTable'
 import CategoryDistribution from './components/CategoryDistribution'
 import CreateIncidentModal from './components/CreateIncidentModal'
 import ExecutiveDirectiveModal from './components/ExecutiveDirectiveModal'
+import ImageInferenceModal from './components/ImageInferenceModal'
 import LoginScreen from './components/LoginScreen'
+import AnalyticsDashboard from './components/AnalyticsDashboard'
 
 function normalizeIncident(inc) {
   return {
@@ -86,6 +93,14 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [apiError, setApiError] = useState(null)
   const [dataSource, setDataSource] = useState('Connecting...')
+  const [liveDetection, setLiveDetection] = useState(null)
+  const [sseConnected, setSseConnected] = useState(false)
+  const [aiSubsystemStatus, setAiSubsystemStatus] = useState(null)
+  const [testingScenario, setTestingScenario] = useState(false)
+  const [imageModalOpen, setImageModalOpen] = useState(false)
+  const [analyzingImage, setAnalyzingImage] = useState(false)
+  const [inferenceResult, setInferenceResult] = useState(null)
+  const [cameraStreaming, setCameraStreaming] = useState(false)
 
   const loadDashboardData = async () => {
     setLoading(true)
@@ -137,6 +152,19 @@ export default function App() {
         }
       }
 
+      // 5. Query AI Hazard Detection Subsystem status
+      try {
+        const aiStatusRes = await aiAPI.getStatus()
+        if (aiStatusRes?.data) {
+          setAiSubsystemStatus(aiStatusRes.data)
+          if (aiStatusRes.data.lastEvent) {
+            setLiveDetection(aiStatusRes.data.lastEvent)
+          }
+        }
+      } catch (aiErr) {
+        console.warn('AI subsystem status query:', aiErr.message)
+      }
+
       setDataSource('API (Live Database)')
     } catch (err) {
       setApiError(err.message || 'Failed to communicate with Hazard Response API.')
@@ -146,15 +174,131 @@ export default function App() {
     }
   }
 
+  // Connect to Real-time Server-Sent Events (SSE) Stream
   useEffect(() => {
-    let ignore = false
-    if (currentUser) {
-      loadDashboardData()
+    if (!currentUser) return
+
+    loadDashboardData()
+
+    let eventSource = null
+    try {
+      eventSource = aiAPI.createEventSource()
+
+      eventSource.addEventListener('connected', () => {
+        setSseConnected(true)
+      })
+
+      eventSource.addEventListener('detection', (e) => {
+        try {
+          const eventData = JSON.parse(e.data)
+          setLiveDetection(eventData)
+        } catch (parseErr) {
+          console.error('Failed to parse live detection SSE event:', parseErr)
+        }
+      })
+
+      eventSource.addEventListener('incident_created', (e) => {
+        try {
+          const incData = JSON.parse(e.data)
+          // Silently refresh incident list to display the newly saved incident immediately
+          incidentAPI.list().then((res) => {
+            if (res?.data?.incidents) {
+              setAllIncidents(res.data.incidents.map(normalizeIncident))
+            }
+          })
+        } catch (parseErr) {
+          console.error('Failed to parse incident_created SSE event:', parseErr)
+        }
+      })
+
+      eventSource.onerror = () => {
+        setSseConnected(false)
+      }
+    } catch (connErr) {
+      console.warn('SSE connection initialization note:', connErr.message)
     }
+
     return () => {
-      ignore = true
+      if (eventSource) {
+        eventSource.close()
+      }
     }
   }, [currentUser])
+
+  // Trigger real staged test scenario through Python inference pipeline & backend
+  async function handleTriggerAiTest(scenarioId) {
+    setTestingScenario(true)
+    try {
+      await aiAPI.triggerTestScenario(scenarioId, 'CAM-12')
+      // Immediate reload of fresh incidents
+      setTimeout(() => {
+        loadDashboardData()
+      }, 500)
+    } catch (err) {
+      setApiError(err.message)
+    } finally {
+      setTestingScenario(false)
+    }
+  }
+
+  // Handle uploaded image for AI inference
+  async function handleImageFileChange(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    setAnalyzingImage(true)
+    setApiError(null)
+
+    const reader = new FileReader()
+    reader.onload = async () => {
+      try {
+        const base64Data = reader.result
+        const res = await aiAPI.inferImage(base64Data, 'CAM-01')
+        if (res?.data) {
+          setInferenceResult(res.data)
+          setImageModalOpen(true)
+          if (res.data.events && res.data.events.length > 0) {
+            const top = res.data.events[0]
+            setLiveDetection({
+              type: 'hazard_detected',
+              category: top.event,
+              cameraId: res.data.camera_id || 'CAM-01',
+              timestamp: new Date().toISOString(),
+              details: top.detail,
+              confidence: 0.91,
+            })
+            setTimeout(() => {
+              loadDashboardData()
+            }, 600)
+          }
+        }
+      } catch (err) {
+        setApiError(err.message || 'Image inference failed.')
+      } finally {
+        setAnalyzingImage(false)
+      }
+    }
+    reader.onerror = () => {
+      setApiError('Failed to read image file.')
+      setAnalyzingImage(false)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  // Toggle background camera streaming worker
+  async function handleToggleCameraStream() {
+    try {
+      if (cameraStreaming) {
+        await aiAPI.stopCamera()
+        setCameraStreaming(false)
+      } else {
+        await aiAPI.startCamera()
+        setCameraStreaming(true)
+      }
+    } catch (err) {
+      setApiError(err.message || 'Camera stream operation failed.')
+    }
+  }
 
   // Session Handlers
   function handleLogin(user, token) {
@@ -357,19 +501,17 @@ export default function App() {
                 setActivePage(item.id)
                 setMobileMenuOpen(false)
               }}
-              className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm transition ${
-                selected
+              className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm transition ${selected
                   ? 'bg-[#a94064] font-semibold text-white shadow-lg shadow-[#a94064]/20'
                   : 'text-slate-300 hover:bg-white/8 hover:text-white'
-              }`}
+                }`}
             >
               <Icon size={18} strokeWidth={1.8} />
               <span className="flex-1 truncate">{item.label}</span>
               {badgeValue !== null && badgeValue > 0 && (
                 <span
-                  className={`rounded-md px-2 py-0.5 text-xs font-semibold ${
-                    selected ? 'bg-white/20 text-white' : 'bg-white/10 text-slate-300'
-                  }`}
+                  className={`rounded-md px-2 py-0.5 text-xs font-semibold ${selected ? 'bg-white/20 text-white' : 'bg-white/10 text-slate-300'
+                    }`}
                 >
                   {badgeValue}
                 </span>
@@ -385,19 +527,17 @@ export default function App() {
     <div className="min-h-screen bg-[#f5f6fa] text-slate-800">
       {/* Backend Integration & Scoped Session Status Banner */}
       <div
-        className={`flex flex-col justify-between gap-1 border-b px-4 py-2 text-xs sm:flex-row sm:items-center md:px-8 ${
-          dataSource.includes('Live')
+        className={`flex flex-col justify-between gap-1 border-b px-4 py-2 text-xs sm:flex-row sm:items-center md:px-8 ${dataSource.includes('Live')
             ? 'border-emerald-200 bg-emerald-50/90 text-emerald-900'
             : 'border-amber-200/80 bg-amber-50/90 text-amber-900'
-        }`}
+          }`}
       >
         <div className="flex flex-wrap items-center gap-2">
           <span
-            className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
-              dataSource.includes('Live')
+            className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${dataSource.includes('Live')
                 ? 'bg-emerald-200 text-emerald-900'
                 : 'bg-amber-200 text-amber-900'
-            }`}
+              }`}
           >
             {dataSource}
           </span>
@@ -577,11 +717,10 @@ export default function App() {
                           key={acc.role}
                           type="button"
                           onClick={() => handleSwitchRole(acc.role)}
-                          className={`flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-xs transition ${
-                            acc.role === currentUser.role
+                          className={`flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-xs transition ${acc.role === currentUser.role
                               ? 'bg-[#f4e6eb] font-semibold text-[#8c2f50]'
                               : 'text-slate-600 hover:bg-slate-50'
-                          }`}
+                            }`}
                         >
                           <span className="truncate">{acc.name}</span>
                           <span className="text-[10px] opacity-75">{acc.roleLabel}</span>
@@ -671,6 +810,162 @@ export default function App() {
                         Issue Directive
                       </button>
                     )}
+                  </div>
+                </div>
+
+                {/* Real-time AI Hazard Detection Live Alert Banner */}
+                {liveDetection && (
+                  <div className="mb-6 rounded-2xl border-2 border-rose-500/40 bg-gradient-to-r from-rose-950/90 via-slate-900 to-slate-900 p-5 text-white shadow-xl shadow-rose-950/20">
+                    <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+                      <div className="flex items-start gap-3.5">
+                        <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-600/30 text-rose-400 ring-1 ring-rose-500/50">
+                          <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-75" />
+                            <span className="relative inline-flex h-3 w-3 rounded-full bg-rose-500" />
+                          </span>
+                          <AlertTriangle size={20} />
+                        </span>
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="rounded bg-rose-600 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider text-white">
+                              {liveDetection.category}
+                            </span>
+                            <span className="rounded bg-white/10 px-2 py-0.5 text-xs font-semibold text-rose-200">
+                              Camera {liveDetection.cameraId}
+                            </span>
+                            {liveDetection.confidence && (
+                              <span className="rounded bg-emerald-500/20 px-2 py-0.5 text-xs font-semibold text-emerald-300">
+                                {Math.round(liveDetection.confidence * 100)}% Confidence
+                              </span>
+                            )}
+                            <span className="text-xs text-slate-400">
+                              {new Date(liveDetection.timestamp).toLocaleTimeString()}
+                            </span>
+                          </div>
+                          <p className="mt-1.5 text-xs text-slate-200 leading-relaxed max-w-3xl">
+                            {liveDetection.details}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 self-end sm:self-center">
+                        <button
+                          type="button"
+                          onClick={() => setLiveDetection(null)}
+                          className="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-white/10"
+                        >
+                          Dismiss Alert
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* AI CCTV Perception & Neural Pipeline Monitor */}
+                <div className="mb-7 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
+                  <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
+                    <div>
+                      <div className="flex items-center gap-2.5">
+                        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-50 text-purple-700">
+                          <Radio size={19} />
+                        </span>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-sm font-bold text-slate-900">Neural CCTV Perception Pipeline</h3>
+                            <span
+                              className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold ${sseConnected
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-amber-100 text-amber-800'
+                                }`}
+                            >
+                              <span
+                                className={`h-1.5 w-1.5 rounded-full ${sseConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
+                                  }`}
+                              />
+                              {sseConnected ? 'Live SSE Stream Active' : 'Connecting Stream...'}
+                            </span>
+                          </div>
+                          <p className="mt-0.5 text-xs text-slate-500">
+                            Trained YOLO models (Pose & Object) · Multi-modal temporal rules for Fall, Dog Attack & Altercation detection.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Quick Simulation / Pipeline Verification Controls */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      {/* Image Upload Input */}
+                      <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-purple-200 bg-purple-50 px-3 py-2 text-xs font-semibold text-purple-700 hover:bg-purple-100 transition">
+                        <Upload size={14} className="text-purple-600" />
+                        <span>{analyzingImage ? 'Analyzing...' : 'Upload Image'}</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleImageFileChange}
+                          disabled={analyzingImage}
+                          className="hidden"
+                        />
+                      </label>
+
+                      {/* Camera Stream Toggle */}
+                      <button
+                        type="button"
+                        onClick={handleToggleCameraStream}
+                        className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition ${
+                          cameraStreaming
+                            ? 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+                            : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                        }`}
+                        title="Start/stop background camera capture stream"
+                      >
+                        {cameraStreaming ? (
+                          <>
+                            <Video size={14} className="text-emerald-600 animate-pulse" />
+                            <span>Camera Active</span>
+                          </>
+                        ) : (
+                          <>
+                            <VideoOff size={14} className="text-slate-500" />
+                            <span>Stream Camera</span>
+                          </>
+                        )}
+                      </button>
+
+                      <div className="hidden h-5 w-px bg-slate-200 sm:block mx-0.5" />
+
+                      <span className="text-[11px] font-medium text-slate-400 mr-0.5 hidden sm:inline">
+                        Test Rules:
+                      </span>
+                      <button
+                        type="button"
+                        disabled={testingScenario}
+                        onClick={() => handleTriggerAiTest(6)}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100 transition disabled:opacity-50"
+                        title="Simulate genuine Fall detection through rule engine and store in MongoDB"
+                      >
+                        <Zap size={14} className="text-rose-600" />
+                        <span>Simulate Fall</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={testingScenario}
+                        onClick={() => handleTriggerAiTest(10)}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-orange-200 bg-orange-50 px-3 py-2 text-xs font-semibold text-orange-700 hover:bg-orange-100 transition disabled:opacity-50"
+                        title="Simulate genuine Dog Attack alert through rule engine and store in MongoDB"
+                      >
+                        <Zap size={14} className="text-orange-600" />
+                        <span>Simulate Dog Attack</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={testingScenario}
+                        onClick={() => handleTriggerAiTest(15)}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100 transition disabled:opacity-50"
+                        title="Simulate genuine Altercation/Fight detection through rule engine and store in MongoDB"
+                      >
+                        <Zap size={14} className="text-red-600" />
+                        <span>Simulate Fight</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -989,10 +1284,10 @@ export default function App() {
                         ? roleIncidents.filter((i) => i.isEscalated)
                         : activePage === 'My Action Items' || activePage === 'Assigned Patrols'
                           ? roleIncidents.filter(
-                              (i) =>
-                                i.assignedStaff === currentUser.name ||
-                                i.assignedOfficer === currentUser.name,
-                            )
+                            (i) =>
+                              i.assignedStaff === currentUser.name ||
+                              i.assignedOfficer === currentUser.name,
+                          )
                           : roleIncidents
                   }
                   currentUser={currentUser}
@@ -1036,13 +1331,12 @@ export default function App() {
                         <div className="flex items-start justify-between">
                           <span className="font-mono text-xs font-bold text-slate-500">{device.sensorId || device.id}</span>
                           <span
-                            className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${
-                              device.status?.includes('Alarm')
+                            className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${device.status?.includes('Alarm')
                                 ? 'bg-rose-100 text-rose-800'
                                 : device.status?.includes('Tamper')
                                   ? 'bg-violet-100 text-violet-800'
                                   : 'bg-emerald-100 text-emerald-800'
-                            }`}
+                              }`}
                           >
                             {device.status}
                           </span>
@@ -1120,14 +1414,12 @@ export default function App() {
                               </td>
                               <td className="px-4 py-4">
                                 <span
-                                  className={`inline-flex items-center gap-1.5 font-medium ${
-                                    member.isActive ? 'text-emerald-700' : 'text-slate-400'
-                                  }`}
+                                  className={`inline-flex items-center gap-1.5 font-medium ${member.isActive ? 'text-emerald-700' : 'text-slate-400'
+                                    }`}
                                 >
                                   <span
-                                    className={`h-1.5 w-1.5 rounded-full ${
-                                      member.isActive ? 'bg-emerald-500' : 'bg-slate-400'
-                                    }`}
+                                    className={`h-1.5 w-1.5 rounded-full ${member.isActive ? 'bg-emerald-500' : 'bg-slate-400'
+                                      }`}
                                   />
                                   {member.isActive ? 'Active' : 'Inactive'}
                                 </span>
@@ -1187,8 +1479,8 @@ export default function App() {
                       {users.filter((m) =>
                         ['DEPT_HEAD', 'SECURITY_OFFICER', 'FACULTY_STAFF'].includes(m.role),
                       ).length === 0 && (
-                        <p className="text-xs text-slate-400">No department coordinators provisioned yet.</p>
-                      )}
+                          <p className="text-xs text-slate-400">No department coordinators provisioned yet.</p>
+                        )}
                     </div>
                   </div>
 
@@ -1266,6 +1558,11 @@ export default function App() {
                 </div>
               </section>
             )}
+
+            {/* RESPONSE PERFORMANCE ANALYTICS */}
+            {activePage === 'Response Performance' && (
+              <AnalyticsDashboard currentUser={currentUser} />
+            )}
           </div>
         </main>
       </div>
@@ -1283,6 +1580,12 @@ export default function App() {
         onClose={() => setDirectiveModalOpen(false)}
         onIssueDirective={handleIssueDirective}
         incidents={roleIncidents}
+      />
+
+      <ImageInferenceModal
+        isOpen={imageModalOpen}
+        onClose={() => setImageModalOpen(false)}
+        result={inferenceResult}
       />
     </div>
   )

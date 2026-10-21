@@ -3,6 +3,21 @@ import { Activity } from 'lucide-react'
 export default function CategoryDistribution({ incidents, subtitle = 'Distribution in current records' }) {
   const categories = [
     {
+      label: 'Fall detection',
+      count: incidents.filter((i) => i.type === 'Fall detection' || i.type === 'POSSIBLE_FALL').length,
+      color: 'bg-rose-500',
+    },
+    {
+      label: 'Dog attack detection',
+      count: incidents.filter((i) => i.type === 'Dog attack detection' || i.type === 'POSSIBLE_DOG_ATTACK').length,
+      color: 'bg-orange-500',
+    },
+    {
+      label: 'Fight detection',
+      count: incidents.filter((i) => i.type === 'Fight detection' || i.type === 'POSSIBLE_ALTERCATION').length,
+      color: 'bg-red-600',
+    },
+    {
       label: 'Fire / Smoke',
       count: incidents.filter((i) => i.type === 'Fire / Smoke').length,
       color: 'bg-[#a94064]',
@@ -10,7 +25,7 @@ export default function CategoryDistribution({ incidents, subtitle = 'Distributi
     {
       label: 'Human safety',
       count: incidents.filter((i) => i.type === 'Human safety').length,
-      color: 'bg-orange-400',
+      color: 'bg-amber-500',
     },
     {
       label: 'Camera tampering',
@@ -25,7 +40,7 @@ export default function CategoryDistribution({ incidents, subtitle = 'Distributi
     {
       label: 'Unauthorized access',
       count: incidents.filter((i) => i.type === 'Unauthorized access').length,
-      color: 'bg-amber-500',
+      color: 'bg-blue-500',
     },
   ]
 

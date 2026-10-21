@@ -72,6 +72,10 @@ export const incidentAPI = {
     apiFetch(`/incidents/${id}/acknowledge`, {
       method: 'PATCH',
     }),
+  startResponse: (id) =>
+    apiFetch(`/incidents/${id}/start-response`, {
+      method: 'PATCH',
+    }),
   updateStatus: (id, status, notes = '') =>
     apiFetch(`/incidents/${id}/status`, {
       method: 'PATCH',
@@ -133,3 +137,68 @@ export const directiveAPI = {
       body: JSON.stringify(directiveData),
     }),
 }
+
+export const analyticsAPI = {
+  getOverview: (params = {}) => {
+    const queryString = new URLSearchParams(params).toString()
+    return apiFetch(`/analytics/overview${queryString ? `?${queryString}` : ''}`)
+  },
+  getRoles: (params = {}) => {
+    const queryString = new URLSearchParams(params).toString()
+    return apiFetch(`/analytics/roles${queryString ? `?${queryString}` : ''}`)
+  },
+  getTrends: (params = {}) => {
+    const queryString = new URLSearchParams(params).toString()
+    return apiFetch(`/analytics/trends${queryString ? `?${queryString}` : ''}`)
+  },
+  getWorkload: (params = {}) => {
+    const queryString = new URLSearchParams(params).toString()
+    return apiFetch(`/analytics/workload${queryString ? `?${queryString}` : ''}`)
+  },
+  getLeaderboard: (params = {}) => {
+    const queryString = new URLSearchParams(params).toString()
+    return apiFetch(`/analytics/leaderboard${queryString ? `?${queryString}` : ''}`)
+  },
+}
+
+export const aiAPI = {
+  getStatus: () => apiFetch('/ai/status'),
+  createEventSource: () => new EventSource(`${API_BASE_URL}/ai/stream`),
+  inferImage: (imageB64, cameraId = 'CAM-01') =>
+    apiFetch('/ai/infer-image', {
+      method: 'POST',
+      body: JSON.stringify({ image: imageB64, cameraId }),
+    }),
+  startCamera: () =>
+    apiFetch('/ai/camera/start', {
+      method: 'POST',
+    }),
+  stopCamera: () =>
+    apiFetch('/ai/camera/stop', {
+      method: 'POST',
+    }),
+  triggerTestScenario: async (scenarioId, cameraId = 'CAM-12') => {
+    try {
+      return await apiFetch('/ai/scenario', {
+        method: 'POST',
+        body: JSON.stringify({ scenario: scenarioId, cameraId }),
+      })
+    } catch (err) {
+      // Fallback to direct Python service port 8000 if backend route proxy is unreachable
+      try {
+        const res = await fetch('http://127.0.0.1:8000/trigger-scenario', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scenario: scenarioId, camera_id: cameraId }),
+        })
+        return await res.json()
+      } catch (subErr) {
+        throw new Error(
+          `AI Inference service unavailable. Please ensure 'python src/inference_service.py' is running. (${err.message})`
+        )
+      }
+    }
+  },
+}
+
+

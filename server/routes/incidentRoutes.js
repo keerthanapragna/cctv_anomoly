@@ -8,6 +8,7 @@ import {
   assignIncident,
   resolveIncident,
   escalateIncident,
+  startIncidentResponse,
 } from '../controllers/incidentController.js'
 import { authenticateToken } from '../middleware/authMiddleware.js'
 import { validateBody } from '../middleware/validateMiddleware.js'
@@ -33,6 +34,7 @@ router.route('/:id')
   .get(getIncidentById)
 
 router.patch('/:id/acknowledge', acknowledgeIncident)
+router.patch('/:id/start-response', startIncidentResponse)
 router.patch('/:id/status', validateBody(updateStatusSchema), updateIncidentStatus)
 router.patch('/:id/assign', validateBody(assignIncidentSchema), assignIncident)
 router.patch('/:id/resolve', validateBody(resolveIncidentSchema), resolveIncident)

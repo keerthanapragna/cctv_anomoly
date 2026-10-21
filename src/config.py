@@ -10,6 +10,22 @@ LOGS_DIR = BASE_DIR / "logs"
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
+# Load server/.env if present so INGEST_API_KEY is synchronized automatically
+server_env = BASE_DIR / "server" / ".env"
+if server_env.exists():
+    try:
+        with open(server_env, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    k = k.strip()
+                    v = v.strip().strip("'\"")
+                    if k not in os.environ:
+                        os.environ[k] = v
+    except Exception:
+        pass
+
 # Camera configuration
 CAMERA_SOURCE = os.getenv("CAMERA_SOURCE", "0")
 try:
@@ -43,6 +59,12 @@ OBJECT_INTERVAL = int(os.getenv("OBJECT_INTERVAL", "5"))
 ALERT_COOLDOWN = float(os.getenv("ALERT_COOLDOWN", "5.0"))          # Global alert cooldown
 TRACK_ALERT_COOLDOWN = float(os.getenv("TRACK_ALERT_COOLDOWN", "30.0"))  # Per-person alert cooldown
 ALERT_LOG_FILE = LOGS_DIR / "alerts.log"
+
+# Backend Ingestion & Forwarding Configuration
+BACKEND_INGEST_URL = os.getenv("BACKEND_INGEST_URL", "http://localhost:5000/api/v1/ai/detection")
+INGEST_API_KEY = os.getenv("INGEST_API_KEY", "your_ingest_api_key_change_in_production")
+CAMERA_ID = os.getenv("CAMERA_ID", "CAM-01")
+CAMERA_LOCATION = os.getenv("CAMERA_LOCATION", "Campus CCTV Surveillance Zone")
 
 # --- Fall Detection Temporal & Biomechanical Thresholds ---
 # 1. Sudden Vertical Movement (Descent Phase)

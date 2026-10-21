@@ -125,6 +125,26 @@ export async function createIncident(req, res, next) {
     const slaMins = SLA_THRESHOLDS_MINUTES[severity]?.acknowledge || 120
     const deadlineStr = slaMins <= 30 ? `${slaMins} mins (Urgent)` : `${Math.round(slaMins / 60)} hours`
 
+    const isInitiallyAssigned = user.role === ROLES.SECURITY_OFFICER || user.role === ROLES.FACULTY_STAFF
+    const assignedAt = isInitiallyAssigned ? new Date() : null
+    const assigneeLabel = user.role === ROLES.SECURITY_OFFICER ? 'Campus Security' : 'Pending Triage'
+    const assignedOfficer = user.role === ROLES.SECURITY_OFFICER ? user.name : null
+    const assignedStaff = user.role === ROLES.FACULTY_STAFF ? user.name : null
+
+    const initialHistory = []
+    if (isInitiallyAssigned) {
+      initialHistory.push({
+        assignedTo: user._id,
+        assignedOfficer,
+        assignedStaff,
+        assigneeLabel,
+        department,
+        assignedAt: new Date(),
+        assignedBy: user._id,
+        note: `Initial assignment upon creation by ${user.name} (${user.role})`,
+      })
+    }
+
     const incident = await Incident.create({
       incidentId,
       title,
@@ -136,9 +156,13 @@ export async function createIncident(req, res, next) {
       status: INCIDENT_STATUSES.NEW,
       source: source || 'MANUAL',
       reportedBy: user._id,
-      assigneeLabel: user.role === ROLES.SECURITY_OFFICER ? 'Campus Security' : 'Pending Triage',
-      assignedOfficer: user.role === ROLES.SECURITY_OFFICER ? user.name : null,
-      assignedStaff: user.role === ROLES.FACULTY_STAFF ? user.name : null,
+      assignedTo: isInitiallyAssigned ? user._id : null,
+      assigneeLabel,
+      assignedOfficer,
+      assignedStaff,
+      detectedAt: new Date(),
+      assignedAt,
+      assignmentHistory: initialHistory,
       deadline: deadlineStr,
       evidenceMetadata: {
         sensorId: sensor || '',
@@ -298,12 +322,37 @@ export async function acknowledgeIncident(req, res, next) {
     incident.status = INCIDENT_STATUSES.ASSIGNED
     incident.acknowledgedAt = new Date()
     incident.acknowledgedBy = req.user._id
+    if (!incident.assignedAt) {
+      incident.assignedAt = incident.acknowledgedAt
+    }
     if (!incident.assignedOfficer && req.user.role === ROLES.SECURITY_OFFICER) {
       incident.assignedOfficer = req.user.name
       incident.assigneeLabel = 'Campus Security'
+      incident.assignedTo = req.user._id
+      incident.assignmentHistory.push({
+        assignedTo: req.user._id,
+        assignedOfficer: req.user.name,
+        assignedStaff: null,
+        assigneeLabel: 'Campus Security',
+        department: incident.department,
+        assignedAt: new Date(),
+        assignedBy: req.user._id,
+        note: `Acknowledged and claimed by ${req.user.name} (Security Officer)`,
+      })
     }
     if (!incident.assignedStaff && req.user.role === ROLES.FACULTY_STAFF) {
       incident.assignedStaff = req.user.name
+      incident.assignedTo = req.user._id
+      incident.assignmentHistory.push({
+        assignedTo: req.user._id,
+        assignedOfficer: null,
+        assignedStaff: req.user.name,
+        assigneeLabel: req.user.name,
+        department: incident.department,
+        assignedAt: new Date(),
+        assignedBy: req.user._id,
+        note: `Acknowledged and claimed by ${req.user.name} (Faculty Staff)`,
+      })
     }
 
     await incident.save()
@@ -354,6 +403,10 @@ export async function updateIncidentStatus(req, res, next) {
     }
 
     incident.status = newStatus
+    if (newStatus === INCIDENT_STATUSES.INVESTIGATING && !incident.responseStartedAt) {
+      incident.responseStartedAt = new Date()
+      incident.responseStartedBy = req.user._id
+    }
     if (notes) {
       incident.notes = `${incident.notes ? incident.notes + ' ' : ''}[Status updated to ${newStatus} by ${req.user.name}: ${notes}]`
     }
@@ -407,7 +460,24 @@ export async function assignIncident(req, res, next) {
     if (assigneeLabel !== undefined) incident.assigneeLabel = assigneeLabel || 'Campus Security'
     if (department && user.role === ROLES.ADMIN) incident.department = department
 
+    const assignmentTime = new Date()
+    incident.assignedAt = assignmentTime
     incident.status = INCIDENT_STATUSES.ASSIGNED
+
+    if (!Array.isArray(incident.assignmentHistory)) {
+      incident.assignmentHistory = []
+    }
+    incident.assignmentHistory.push({
+      assignedTo: incident.assignedTo,
+      assignedOfficer: incident.assignedOfficer,
+      assignedStaff: incident.assignedStaff,
+      assigneeLabel: incident.assigneeLabel,
+      department: incident.department,
+      assignedAt: assignmentTime,
+      assignedBy: user._id,
+      note: req.body.notes || `Reassigned by ${user.name} (${user.role})`,
+    })
+
     await incident.save()
 
     return successResponse(res, {
@@ -502,3 +572,46 @@ export async function escalateIncident(req, res, next) {
     next(err)
   }
 }
+
+// 9. Start Response (records genuine response start timestamp)
+export async function startIncidentResponse(req, res, next) {
+  try {
+    const { id } = req.params
+    const query = id.startsWith('INC-') ? { incidentId: id.toUpperCase() } : { _id: id }
+
+    const incident = await Incident.findOne(query)
+    if (!incident) {
+      return errorResponse(res, { statusCode: 404, message: 'Incident not found.' })
+    }
+
+    if (!canUserAccessIncident(req.user, incident)) {
+      return errorResponse(res, {
+        statusCode: 403,
+        message: 'Forbidden: You cannot respond to an incident outside your scope.',
+      })
+    }
+
+    if (incident.status === INCIDENT_STATUSES.RESOLVED || incident.status === INCIDENT_STATUSES.CLOSED) {
+      return errorResponse(res, {
+        statusCode: 400,
+        message: `Cannot start response on an incident that is already ${incident.status}.`,
+      })
+    }
+
+    if (!incident.responseStartedAt) {
+      incident.responseStartedAt = new Date()
+      incident.responseStartedBy = req.user._id
+    }
+    incident.status = INCIDENT_STATUSES.INVESTIGATING
+
+    await incident.save()
+
+    return successResponse(res, {
+      message: `Active response initiated for Incident ${incident.incidentId} by ${req.user.name}.`,
+      data: { incident },
+    })
+  } catch (err) {
+    next(err)
+  }
+}
+

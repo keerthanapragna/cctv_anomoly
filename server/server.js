@@ -13,6 +13,8 @@ import userRoutes from './routes/userRoutes.js'
 import incidentRoutes from './routes/incidentRoutes.js'
 import sensorRoutes from './routes/sensorRoutes.js'
 import directiveRoutes from './routes/directiveRoutes.js'
+import aiRoutes from './routes/aiRoutes.js'
+import analyticsRoutes from './routes/analyticsRoutes.js'
 
 const app = express()
 
@@ -34,8 +36,8 @@ app.use(
   }),
 )
 app.use(cookieParser())
-app.use(express.json({ limit: '2mb' }))
-app.use(express.urlencoded({ extended: true }))
+app.use(express.json({ limit: '15mb' }))
+app.use(express.urlencoded({ extended: true, limit: '15mb' }))
 
 if (env.NODE_ENV === 'development') {
   app.use(morgan('dev'))
@@ -71,6 +73,9 @@ app.use('/api/v1/users', userRoutes)
 app.use('/api/v1/incidents', incidentRoutes)
 app.use('/api/v1/sensors', sensorRoutes)
 app.use('/api/v1/directives', directiveRoutes)
+app.use('/api/v1/ai', aiRoutes)
+app.use('/api/v1/analytics', analyticsRoutes)
+app.use('/api/analytics', analyticsRoutes)
 
 // Central 404 & Error Handling
 app.use(notFoundHandler)

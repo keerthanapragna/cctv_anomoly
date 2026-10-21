@@ -9,6 +9,7 @@ import {
   Clock3,
   Building2,
   ScrollText,
+  BarChart2,
 } from 'lucide-react'
 
 export const ROLE_CONFIGS = {
@@ -27,6 +28,7 @@ export const ROLE_CONFIGS = {
       { id: 'Escalations', label: 'Escalations & SLAs', icon: ShieldAlert, badgeKey: 'escalated' },
       { id: 'People & Roles', label: 'People & Roles', icon: Users },
       { id: 'Reports', label: 'Audit & Reports', icon: FileText },
+      { id: 'Response Performance', label: 'Response Performance', icon: BarChart2 },
     ],
     capabilities: {
       canCreateIncident: true,
@@ -155,6 +157,7 @@ export const ROLE_CONFIGS = {
       { id: 'Critical Hazards', label: 'Critical Emergencies', icon: Clock3, badgeKey: 'critical' },
       { id: 'Institutional Audit', label: 'SLA Audit & Accountability', icon: ScrollText },
       { id: 'Executive Directives', label: 'Executive Directives', icon: FileText },
+      { id: 'Response Performance', label: 'Response Performance', icon: BarChart2 },
     ],
     capabilities: {
       canCreateIncident: false, // Routine reporting handled by staff/security
