@@ -24,6 +24,7 @@ export const ROLE_CONFIGS = {
     navItems: [
       { id: 'Overview', label: 'Overview', icon: LayoutDashboard },
       { id: 'All Incidents', label: 'All Incidents', icon: ClipboardList, badgeKey: 'total' },
+      { id: 'Violence AI & Live Camera', label: 'Live Camera & Violence AI', icon: Camera },
       { id: 'Cameras & Sensors', label: 'Cameras & Sensors', icon: Camera },
       { id: 'Escalations', label: 'Escalations & SLAs', icon: ShieldAlert, badgeKey: 'escalated' },
       { id: 'People & Roles', label: 'People & Roles', icon: Users },
@@ -55,6 +56,7 @@ export const ROLE_CONFIGS = {
       { id: 'Overview', label: 'Overview', icon: LayoutDashboard },
       { id: 'Field Dispatch', label: 'Field Dispatch', icon: Radio, badgeKey: 'open' },
       { id: 'Assigned Patrols', label: 'My Patrol Tasks', icon: ClipboardList, badgeKey: 'assigned' },
+      { id: 'Violence AI & Live Camera', label: 'Live Camera & Violence AI', icon: Camera },
       { id: 'Camera Tampering', label: 'Cameras & Tampering', icon: Camera, badgeKey: 'tampered' },
       { id: 'Action History', label: 'Dispatch Log', icon: FileText },
     ],

@@ -87,3 +87,11 @@ logs/*
 .DS_Store
 Thumbs.db
 >>>>>>> fall,dog-attacks,fight-detection
+
+# Python virtual environments
+**/.venv/
+**/venv/
+
+# Python cache files
+**/__pycache__/
+**/*.py[cod]

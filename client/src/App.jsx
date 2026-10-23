@@ -35,6 +35,7 @@ import ExecutiveDirectiveModal from './components/ExecutiveDirectiveModal'
 import ImageInferenceModal from './components/ImageInferenceModal'
 import LoginScreen from './components/LoginScreen'
 import AnalyticsDashboard from './components/AnalyticsDashboard'
+import LiveViolenceMonitor from './components/LiveViolenceMonitor'
 
 function normalizeIncident(inc) {
   return {
@@ -194,6 +195,23 @@ export default function App() {
           setLiveDetection(eventData)
         } catch (parseErr) {
           console.error('Failed to parse live detection SSE event:', parseErr)
+        }
+      })
+
+      eventSource.addEventListener('violence_detection', (e) => {
+        try {
+          const vData = JSON.parse(e.data)
+          setLiveDetection({
+            type: 'violence_detected',
+            category: 'Fight detection',
+            severity: vData.severity,
+            confidence: vData.confidence,
+            cameraId: vData.cameraId,
+            timestamp: vData.timestamp,
+            details: `AI Violence Perception Alert: ${vData.severity} (confidence: ${(vData.confidence * 100).toFixed(0)}%, uncertainty: ${vData.uncertainty?.toFixed(2)}) on ${vData.cameraId}. Verification required.`,
+          })
+        } catch (parseErr) {
+          console.error('Failed to parse violence_detection SSE event:', parseErr)
         }
       })
 
@@ -893,6 +911,17 @@ export default function App() {
 
                     {/* Quick Simulation / Pipeline Verification Controls */}
                     <div className="flex flex-wrap items-center gap-2">
+                      {/* Live Camera Violence Monitor Link */}
+                      <button
+                        type="button"
+                        onClick={() => setActivePage('Violence AI & Live Camera')}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-[#a94064]/30 bg-[#a94064]/10 px-3 py-2 text-xs font-bold text-[#a94064] hover:bg-[#a94064] hover:text-white transition"
+                        title="Open Live Camera & CCTV Violence Detection Monitor"
+                      >
+                        <Camera size={14} />
+                        <span>Live Violence Monitor</span>
+                      </button>
+
                       {/* Image Upload Input */}
                       <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-purple-200 bg-purple-50 px-3 py-2 text-xs font-semibold text-purple-700 hover:bg-purple-100 transition">
                         <Upload size={14} className="text-purple-600" />
@@ -1297,6 +1326,17 @@ export default function App() {
                   onAcknowledge={handleAcknowledge}
                   title={`${activePage} View`}
                   subtitle={`Showing records matching '${activePage}' filter.`}
+                />
+              </section>
+            )}
+
+            {/* VIOLENCE AI & LIVE CAMERA MONITOR TAB */}
+            {activePage === 'Violence AI & Live Camera' && (
+              <section className="space-y-4">
+                <LiveViolenceMonitor
+                  currentUser={currentUser}
+                  onNavigateToIncidents={() => setActivePage('All Incidents')}
+                  onIncidentCreated={loadDashboardData}
                 />
               </section>
             )}

@@ -190,6 +190,12 @@ const incidentSchema = new mongoose.Schema(
       sensorStatus: { type: String, default: '' },
       snapshotUrl: { type: String, default: '' },
       tamperFlags: [{ type: String }],
+      sourceType: { type: String, default: '' },
+      violenceScore: { type: Number, default: null },
+      uncertaintyScore: { type: Number, default: null },
+      decisionThreshold: { type: Number, default: null },
+      requiresHumanReview: { type: Boolean, default: false },
+      humanReviewStatus: { type: String, default: 'Pending' },
     },
     notes: {
       type: String,

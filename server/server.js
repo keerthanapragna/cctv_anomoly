@@ -15,6 +15,7 @@ import sensorRoutes from './routes/sensorRoutes.js'
 import directiveRoutes from './routes/directiveRoutes.js'
 import aiRoutes from './routes/aiRoutes.js'
 import analyticsRoutes from './routes/analyticsRoutes.js'
+import violenceRoutes from './routes/violenceRoutes.js'
 
 const app = express()
 
@@ -76,6 +77,7 @@ app.use('/api/v1/directives', directiveRoutes)
 app.use('/api/v1/ai', aiRoutes)
 app.use('/api/v1/analytics', analyticsRoutes)
 app.use('/api/analytics', analyticsRoutes)
+app.use('/api/v1/violence', violenceRoutes)
 
 // Central 404 & Error Handling
 app.use(notFoundHandler)

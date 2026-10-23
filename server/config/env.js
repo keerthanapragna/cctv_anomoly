@@ -30,6 +30,11 @@ const envSchema = z.object({
   REFRESH_TOKEN_EXPIRES_IN: z.string().default('7d'),
   INGEST_API_KEY: z.string().min(8, { message: 'INGEST_API_KEY must be at least 8 characters' }),
   INFERENCE_SERVICE_URL: z.string().default('http://127.0.0.1:8000'),
+  VIOLENCE_SERVICE_URL: z.string().default('http://127.0.0.1:8001'),
+  VIOLENCE_THRESHOLD: z.coerce.number().default(0.65),
+  VIOLENCE_UNCERTAINTY_THRESHOLD: z.coerce.number().default(0.40),
+  VIOLENCE_COOLDOWN_SECONDS: z.coerce.number().default(45),
+  CCTV_STREAM_URL: z.string().optional(),
 })
 
 const parsedEnv = envSchema.safeParse(process.env)

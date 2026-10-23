@@ -12,6 +12,7 @@ export const HAZARD_CATEGORIES = Object.freeze([
   'Fall detection',
   'Dog attack detection',
   'Fight detection',
+  'Violence detection',
   'Camera tampering',
   'Unauthorized access',
   'Environmental hazard',

@@ -201,4 +201,41 @@ export const aiAPI = {
   },
 }
 
+export const violenceAPI = {
+  getStatus: () => apiFetch('/violence/status'),
+  analyzeVideo: async (formData) => {
+    const token = localStorage.getItem('hazard_token')
+    const headers = {}
+    if (token && token !== 'demo-offline-token') {
+      headers.Authorization = `Bearer ${token}`
+    }
+    const res = await fetch(`${API_BASE_URL}/violence/analyze-video`, {
+      method: 'POST',
+      body: formData,
+      headers,
+      credentials: 'include',
+    })
+    const data = await res.json().catch(() => null)
+    if (!res.ok) {
+      throw new Error(data?.message || `HTTP error ${res.status}: ${res.statusText}`)
+    }
+    return data
+  },
+  analyzeFrames: (payload) =>
+    apiFetch('/violence/analyze-frames', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  startCctv: (config = {}) =>
+    apiFetch('/violence/cctv/start', {
+      method: 'POST',
+      body: JSON.stringify(config),
+    }),
+  stopCctv: () =>
+    apiFetch('/violence/cctv/stop', {
+      method: 'POST',
+    }),
+  getCctvStatus: () => apiFetch('/violence/cctv/status'),
+}
+
 
